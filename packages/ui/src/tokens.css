@@ -1,0 +1,43 @@
+/**
+ * Paper & ink — the app's own visual identity.
+ *
+ * Warm cream ground, near-black ink, a single burnt-orange accent. Serif display
+ * against a clean sans body. These tokens style the app chrome only; the resume
+ * documents are styled separately by themeToCss so they stay print-conservative.
+ */
+:root {
+  /* Surfaces, warm-tinted rather than neutral grey */
+  --paper: #faf7f2;
+  --paper-raised: #fffdfa;
+  --paper-sunken: #f2ede4;
+  --paper-edge: #e4dcd905;
+
+  /* Ink */
+  --ink: #1c1917;
+  --ink-muted: #6b6259;
+  --ink-faint: #9c9288;
+
+  /* Rules and borders */
+  --rule: #e0d8cc;
+  --rule-strong: #cfc4b4;
+
+  /* Burnt orange accent, one confident colour */
+  --accent: #c2410c;
+  --accent-hover: #9a3412;
+  --accent-wash: #fdf0e7;
+  --accent-ring: #f0b79a;
+
+  /* Feedback, tuned to sit inside the warm palette */
+  --positive: #3f6212;
+  --positive-wash: #f2f7e8;
+  --danger: #b42318;
+  --danger-wash: #fdf2f0;
+
+  /* Editor canvas surround, deliberately darker so the white page reads as paper */
+  --canvas: #423c35;
+  --canvas-grid: #4d463e;
+
+  --shadow-card: 0 1px 2px rgb(28 25 23 / 0.04), 0 4px 12px rgb(28 25 23 / 0.06);
+  --shadow-lift: 0 2px 4px rgb(28 25 23 / 0.06), 0 12px 32px rgb(28 25 23 / 0.12);
+  --shadow-page: 0 1px 3px rgb(0 0 0 / 0.18), 0 12px 36px rgb(0 0 0 / 0.22);
+}

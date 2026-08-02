@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: underleaf-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: underleaf
+      POSTGRES_PASSWORD: underleaf
+      POSTGRES_DB: underleaf
+    ports:
+      # Deliberately not 5432: a locally-installed PostgreSQL usually holds that,
+      # and the clash surfaces as a confusing auth failure rather than a refused
+      # connection, because the wrong server answers.
+      - "5442:5432"
+    volumes:
+      - underleaf-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U underleaf -d underleaf"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  underleaf-pgdata:

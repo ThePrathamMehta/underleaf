@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+
+  resumes Resume[]
+}
+
+model Template {
+  id              String  @id @default(cuid())
+  name            String
+  slug            String  @unique
+  description     String
+  previewImageUrl String?
+  category        String
+  /// Reserved for a later paid tier; unused in v1.
+  isPremium       Boolean @default(false)
+  /// Theme JSON, validated against themeSchema in @repo/types.
+  defaultTheme    Json
+  /// Sample content shown in the gallery and copied into new resumes.
+  sampleContent   Json
+
+  resumes Resume[]
+
+  @@index([category])
+}
+
+model Resume {
+  id         String   @id @default(cuid())
+  userId     String
+  templateId String
+  title      String
+  /// ResumeContent JSON, validated against resumeContentSchema in @repo/types.
+  content    Json
+  /// Theme JSON — the user's overrides of the template's defaultTheme.
+  theme      Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template Template @relation(fields: [templateId], references: [id])
+
+  @@index([userId, updatedAt])
+}
