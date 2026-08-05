@@ -11,12 +11,50 @@ import type {
   SkillsItem,
   SummaryItem,
 } from "@repo/types";
-import { EditableLink, EditableText, type FieldPath } from "./editable";
+import { EditableLink, EditableText, useResumeEditing, type FieldPath } from "./editable";
+import { htmlToPlainText, isBlankHtml } from "./rich-text";
 
 /** Joins a date range, tolerating either side being blank. */
 function dateRange(start: string, end: string): string {
   if (start && end) return `${start} – ${end}`;
   return start || end;
+}
+
+/**
+ * The date column of an entry.
+ *
+ * Printed as a single joined run so a half-filled range doesn't leave a dangling
+ * dash, but edited as its two real fields — previously this rendered as static
+ * text, which left no way to change an entry's dates at all.
+ */
+function EditableDateRange({
+  start,
+  end,
+  basePath,
+  startKey = "startDate",
+  endKey = "endDate",
+}: {
+  start: string;
+  end: string;
+  basePath: FieldPath;
+  startKey?: string;
+  endKey?: string;
+}) {
+  const editing = useResumeEditing();
+
+  if (!editing) {
+    return <span className="rd-entry-meta">{dateRange(htmlToPlainText(start), htmlToPlainText(end))}</span>;
+  }
+
+  // Both halves always render while editing, so an empty one still offers a
+  // placeholder to click into.
+  return (
+    <span className="rd-entry-meta rd-date-range">
+      <EditableText value={start} path={[...basePath, startKey]} placeholder="Start" rich={false} />
+      <span className="rd-date-sep"> – </span>
+      <EditableText value={end} path={[...basePath, endKey]} placeholder="End" rich={false} />
+    </span>
+  );
 }
 
 export function SectionShell({
@@ -71,24 +109,28 @@ export function ResumeHeader({
   personalInfo: PersonalInfo;
   centered?: boolean;
 }) {
+  const editing = useResumeEditing();
   const { name, title, email, phone, location, links } = personalInfo;
   const contactItems: React.ReactNode[] = [];
 
-  if (email) {
+  // While editing, a blank contact field still renders so there's a placeholder
+  // to click into; in print it's simply absent.
+  if (editing || !isBlankHtml(email)) {
     contactItems.push(
       <EditableText key="email" value={email} path={["personalInfo", "email"]} placeholder="Email" />,
     );
   }
-  if (phone) {
+  if (editing || !isBlankHtml(phone)) {
     contactItems.push(
       <EditableText key="phone" value={phone} path={["personalInfo", "phone"]} placeholder="Phone" />,
     );
   }
-  if (location) {
+  if (editing || !isBlankHtml(location)) {
     contactItems.push(
       <EditableText key="location" value={location} path={["personalInfo", "location"]} placeholder="Location" />,
     );
   }
+
   links.forEach((link, i) => {
     contactItems.push(
       <EditableLink
@@ -110,7 +152,7 @@ export function ResumeHeader({
         path={["personalInfo", "name"]}
         placeholder="Your name"
       />
-      {title ? (
+      {editing || !isBlankHtml(title) ? (
         <EditableText
           as="div"
           className="rd-role"
@@ -160,7 +202,7 @@ export function ExperienceBody({ items, sectionIndex }: { items: ExperienceItem[
           <div className="rd-entry" key={item.id} data-item-id={item.id}>
             <div className="rd-entry-row">
               <EditableText className="rd-entry-primary" value={item.org} path={[...base, "org"]} placeholder="Company" />
-              <span className="rd-entry-meta">{dateRange(item.startDate, item.endDate)}</span>
+              <EditableDateRange start={item.startDate} end={item.endDate} basePath={base} />
             </div>
             <div className="rd-entry-row">
               <EditableText className="rd-entry-secondary" value={item.role} path={[...base, "role"]} placeholder="Role" />
@@ -188,7 +230,7 @@ export function EducationBody({ items, sectionIndex }: { items: EducationItem[];
                 path={[...base, "institution"]}
                 placeholder="Institution"
               />
-              <span className="rd-entry-meta">{dateRange(item.startDate, item.endDate)}</span>
+              <EditableDateRange start={item.startDate} end={item.endDate} basePath={base} />
             </div>
             <div className="rd-entry-row">
               <EditableText className="rd-entry-secondary" value={item.degree} path={[...base, "degree"]} placeholder="Degree" />
@@ -203,22 +245,30 @@ export function EducationBody({ items, sectionIndex }: { items: EducationItem[];
 }
 
 export function SkillsBody({ items, sectionIndex }: { items: SkillsItem[]; sectionIndex: number }) {
+  const editing = useResumeEditing();
+
   return (
     <>
       {items.map((item, i) => {
         const base: FieldPath = ["sections", sectionIndex, "items", i];
         return (
           <div className="rd-skill-row" key={item.id} data-item-id={item.id}>
-            {item.category ? (
+            {editing || !isBlankHtml(item.category) ? (
               <>
                 <EditableText className="rd-skill-label" value={item.category} path={[...base, "category"]} placeholder="Category" />
                 <span>: </span>
               </>
             ) : null}
+            {/*
+              Stored as an array and shown as one comma-separated field, so this
+              one field stays plain text — inline markup would be chopped up by
+              the reducer's comma split.
+            */}
             <EditableText
               value={item.skills.join(", ")}
               path={[...base, "skills"]}
               placeholder="Comma-separated skills"
+              rich={false}
             />
           </div>
         );
@@ -228,6 +278,8 @@ export function SkillsBody({ items, sectionIndex }: { items: SkillsItem[]; secti
 }
 
 export function ProjectsBody({ items, sectionIndex }: { items: ProjectItem[]; sectionIndex: number }) {
+  const editing = useResumeEditing();
+
   return (
     <>
       {items.map((item, i) => {
@@ -237,14 +289,14 @@ export function ProjectsBody({ items, sectionIndex }: { items: ProjectItem[]; se
             <div className="rd-entry-row">
               <span>
                 <EditableText className="rd-entry-primary" value={item.name} path={[...base, "name"]} placeholder="Project" />
-                {item.tech ? (
+                {editing || !isBlankHtml(item.tech) ? (
                   <>
-                    <span> | </span>
+                    <span className="rd-entry-divider"> | </span>
                     <EditableText className="rd-entry-secondary" value={item.tech} path={[...base, "tech"]} placeholder="Tech used" />
                   </>
                 ) : null}
               </span>
-              <span className="rd-entry-meta">{dateRange(item.startDate, item.endDate)}</span>
+              <EditableDateRange start={item.startDate} end={item.endDate} basePath={base} />
             </div>
             <Bullets bullets={item.bullets} basePath={[...base, "bullets"]} />
           </div>
@@ -255,6 +307,8 @@ export function ProjectsBody({ items, sectionIndex }: { items: ProjectItem[]; se
 }
 
 export function CertificationsBody({ items, sectionIndex }: { items: CertificationItem[]; sectionIndex: number }) {
+  const editing = useResumeEditing();
+
   return (
     <>
       {items.map((item, i) => {
@@ -264,14 +318,14 @@ export function CertificationsBody({ items, sectionIndex }: { items: Certificati
             <div className="rd-entry-row">
               <span>
                 <EditableText className="rd-entry-primary" value={item.name} path={[...base, "name"]} placeholder="Certification" />
-                {item.issuer ? (
+                {editing || !isBlankHtml(item.issuer) ? (
                   <>
-                    <span> — </span>
+                    <span className="rd-entry-divider"> — </span>
                     <EditableText className="rd-entry-secondary" value={item.issuer} path={[...base, "issuer"]} placeholder="Issuer" />
                   </>
                 ) : null}
               </span>
-              <EditableText className="rd-entry-meta" value={item.date} path={[...base, "date"]} placeholder="Year" />
+              <EditableText className="rd-entry-meta" value={item.date} path={[...base, "date"]} placeholder="Year" rich={false} />
             </div>
           </div>
         );
@@ -281,6 +335,8 @@ export function CertificationsBody({ items, sectionIndex }: { items: Certificati
 }
 
 export function CustomBody({ items, sectionIndex }: { items: CustomItem[]; sectionIndex: number }) {
+  const editing = useResumeEditing();
+
   return (
     <>
       {items.map((item, i) => {
@@ -289,9 +345,9 @@ export function CustomBody({ items, sectionIndex }: { items: CustomItem[]; secti
           <div className="rd-entry" key={item.id} data-item-id={item.id}>
             <div className="rd-entry-row">
               <EditableText className="rd-entry-primary" value={item.heading} path={[...base, "heading"]} placeholder="Heading" />
-              <EditableText className="rd-entry-meta" value={item.dateRange} path={[...base, "dateRange"]} placeholder="Dates" />
+              <EditableText className="rd-entry-meta" value={item.dateRange} path={[...base, "dateRange"]} placeholder="Dates" rich={false} />
             </div>
-            {item.subheading ? (
+            {editing || !isBlankHtml(item.subheading) ? (
               <EditableText
                 as="div"
                 className="rd-entry-secondary"

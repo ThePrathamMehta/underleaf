@@ -51,12 +51,13 @@ authRouter.post(
     const user = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
 
     // Same message and comparable timing whether the email or the password was
-    // wrong, so the endpoint doesn't confirm which emails have accounts.
-    const passwordMatches = user
-      ? await bcrypt.compare(password, user.passwordHash)
-      : await bcrypt.compare(password, "$2a$12$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalidinv");
+    // wrong, so the endpoint doesn't confirm which emails have accounts. An
+    // OAuth-only user has no passwordHash, so compare against a dummy to keep
+    // timing constant and still reject.
+    const DUMMY_HASH = "$2a$12$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalidinv";
+    const passwordMatches = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);
 
-    if (!user || !passwordMatches) {
+    if (!user || !user.passwordHash || !passwordMatches) {
       throw unauthorized("Incorrect email or password");
     }
 

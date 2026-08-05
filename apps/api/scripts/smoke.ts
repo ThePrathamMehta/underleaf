@@ -25,6 +25,12 @@ function cookieFrom(response: Response): string {
   return raw.map((c) => c.split(";")[0]).join("; ");
 }
 
+/**
+ * Whatever the endpoint returned. Deliberately loose: this script pokes at
+ * response shapes it's asserting *aren't* yet guaranteed, so `unknown` would
+ * mean a cast at every single access and assert nothing extra.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Json = Record<string, any>;
 
 async function call(

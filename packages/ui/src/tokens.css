@@ -37,7 +37,66 @@
   --canvas: #423c35;
   --canvas-grid: #4d463e;
 
+  /* Scrollbars. Two pairs, because the app has two grounds: the warm paper
+     chrome and the much darker editor canvas, which need opposite contrast. */
+  --scrollbar-thumb: #cdc1b0;
+  --scrollbar-thumb-hover: #b0a390;
+  --scrollbar-thumb-on-dark: #6b6156;
+  --scrollbar-thumb-on-dark-hover: #8a7f70;
+
   --shadow-card: 0 1px 2px rgb(28 25 23 / 0.04), 0 4px 12px rgb(28 25 23 / 0.06);
   --shadow-lift: 0 2px 4px rgb(28 25 23 / 0.06), 0 12px 32px rgb(28 25 23 / 0.12);
   --shadow-page: 0 1px 3px rgb(0 0 0 / 0.18), 0 12px 36px rgb(0 0 0 / 0.22);
+}
+
+/**
+ * Dark mode — app chrome only. Applied by toggling a `.dark` class on <html>
+ * (see theme-context in apps/web). The resume document is styled separately by
+ * themeToCss and stays light/print-appropriate, so nothing here reaches it.
+ *
+ * Same warm identity, inverted: a warm near-black ground, warm off-white ink,
+ * a brighter accent so it reads against the dark ground. Contrast targets AA;
+ * verify with a checker as part of the Definition of Done.
+ */
+.dark {
+  /* Surfaces */
+  --paper: #1a1613;
+  --paper-raised: #221d19;
+  --paper-sunken: #120f0c;
+  --paper-edge: #00000005;
+
+  /* Ink */
+  --ink: #f4efe8;
+  --ink-muted: #b7ac9e;
+  --ink-faint: #8b8073;
+
+  /* Rules and borders */
+  --rule: #332d26;
+  --rule-strong: #494138;
+
+  /* Accent, brightened for legibility on the dark ground */
+  --accent: #f2743a;
+  --accent-hover: #f78d5b;
+  --accent-wash: #2a1a11;
+  --accent-ring: #6e3c22;
+
+  /* Feedback */
+  --positive: #a3c76d;
+  --positive-wash: #1c2411;
+  --danger: #f28b82;
+  --danger-wash: #2a1310;
+
+  /* Editor canvas surround — kept deep so the white page still reads as paper */
+  --canvas: #100d0b;
+  --canvas-grid: #1c1815;
+
+  /* Both grounds are dark here, so the two pairs converge. */
+  --scrollbar-thumb: #3d352c;
+  --scrollbar-thumb-hover: #574d41;
+  --scrollbar-thumb-on-dark: #2e2822;
+  --scrollbar-thumb-on-dark-hover: #484036;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 12px rgb(0 0 0 / 0.4);
+  --shadow-lift: 0 2px 4px rgb(0 0 0 / 0.35), 0 12px 32px rgb(0 0 0 / 0.5);
+  --shadow-page: 0 1px 3px rgb(0 0 0 / 0.5), 0 16px 40px rgb(0 0 0 / 0.6);
 }

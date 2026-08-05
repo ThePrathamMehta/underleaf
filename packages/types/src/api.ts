@@ -65,6 +65,11 @@ export type TemplateDto = z.infer<typeof templateSchema>;
 export const createResumeBodySchema = z.object({
   templateId: z.string().min(1),
   title: z.string().min(1).max(160).optional(),
+  /**
+   * "Start from Blank": create against the given template but with an empty
+   * scaffolded content payload instead of the template's sample content.
+   */
+  blank: z.boolean().optional(),
 });
 
 export type CreateResumeBody = z.infer<typeof createResumeBodySchema>;

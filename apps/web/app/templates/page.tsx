@@ -18,6 +18,7 @@ export default function TemplatesPage() {
   const [error, setError] = useState<string | null>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [creatingSlug, setCreatingSlug] = useState<string | null>(null);
+  const [preview, setPreview] = useState<TemplateDto | null>(null);
 
   useEffect(() => {
     api
@@ -38,7 +39,9 @@ export default function TemplatesPage() {
     return category ? templates.filter((t) => t.category === category) : templates;
   }, [templates, category]);
 
-  async function useTemplate(template: TemplateDto) {
+  // Not `useTemplate`: a use-prefixed name reads as a hook, and the rules-of-
+  // hooks lint rightly objected to it being called from an onClick.
+  async function createFromTemplate(template: TemplateDto) {
     // Creating a resume requires auth; send guests to signup and return them here.
     if (!user) {
       router.push(`/signup?next=${encodeURIComponent("/templates")}`);
@@ -48,6 +51,27 @@ export default function TemplatesPage() {
     setCreatingSlug(template.slug);
     try {
       const { resume } = await api.createResume({ templateId: template.id });
+      router.push(`/editor/${resume.id}`);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Could not create the resume.");
+      setCreatingSlug(null);
+    }
+  }
+
+  // Start from Blank creates against the default template (Jake's) with an empty
+  // scaffold rather than its sample content. Styling can be changed later via the
+  // editor's template switcher without losing entered content.
+  async function startBlank() {
+    if (!user) {
+      router.push(`/signup?next=${encodeURIComponent("/templates")}`);
+      return;
+    }
+    const base = templates?.find((t) => t.slug === "jakes") ?? templates?.[0];
+    if (!base) return;
+
+    setCreatingSlug("__blank__");
+    try {
+      const { resume } = await api.createResume({ templateId: base.id, blank: true });
       router.push(`/editor/${resume.id}`);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Could not create the resume.");
@@ -99,6 +123,37 @@ export default function TemplatesPage() {
         {templates === null && !error && <SkeletonGrid />}
 
         <motion.div layout className="mt-10 grid gap-x-7 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
+          {/* Pinned first: a blank start. Only when unfiltered, so it can't look
+              like a stray result under a category. */}
+          {templates !== null && category === null && (
+            <motion.article
+              layout
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              whileHover={{ y: -4 }}
+              transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+              className="group"
+            >
+              <button
+                type="button"
+                onClick={() => void startBlank()}
+                disabled={creatingSlug !== null}
+                className="flex w-full flex-col items-center justify-center rounded-lg border border-dashed border-rule-strong bg-paper-raised text-center transition-all duration-300 hover:border-accent hover:shadow-lift disabled:opacity-60"
+                style={{ aspectRatio: "215.9 / 279.4" }}
+              >
+                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-accent-wash text-accent transition-transform duration-300 group-hover:scale-110">
+                  <PlusIcon />
+                </span>
+                <span className="mt-4 font-display text-xl tracking-tight text-ink">
+                  {creatingSlug === "__blank__" ? "Creating…" : "Start from blank"}
+                </span>
+                <span className="mt-1.5 max-w-[24ch] text-sm text-ink-muted text-pretty">
+                  An empty document with just the structure. Style it any way later.
+                </span>
+              </button>
+            </motion.article>
+          )}
+
           <AnimatePresence mode="popLayout">
             {visible.map((template, index) => (
               <motion.article
@@ -107,6 +162,7 @@ export default function TemplatesPage() {
                 initial={{ opacity: 0, y: 18 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.97 }}
+                whileHover={{ y: -4 }}
                 transition={{
                   duration: 0.45,
                   // Stagger only on first paint; filtering should feel immediate.
@@ -124,10 +180,17 @@ export default function TemplatesPage() {
                   />
 
                   {/* Action layer, revealed on hover and always available on touch. */}
-                  <div className="absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-t from-ink/70 via-ink/25 to-transparent p-4 pt-12 opacity-0 transition-opacity duration-300 group-hover:opacity-100 focus-within:opacity-100">
+                  <div className="absolute inset-x-0 bottom-0 flex justify-center gap-2 bg-gradient-to-t from-ink/70 via-ink/25 to-transparent p-4 pt-12 opacity-0 transition-opacity duration-300 group-hover:opacity-100 focus-within:opacity-100">
                     <Button
                       size="sm"
-                      onClick={() => void useTemplate(template)}
+                      variant="secondary"
+                      onClick={() => setPreview(template)}
+                    >
+                      Preview
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => void createFromTemplate(template)}
                       disabled={creatingSlug !== null}
                     >
                       {creatingSlug === template.slug ? "Creating…" : "Use this template"}
@@ -155,7 +218,109 @@ export default function TemplatesPage() {
           <p className="mt-16 text-center text-ink-muted">No templates in that category yet.</p>
         )}
       </main>
+
+      <TemplatePreview
+        template={preview}
+        creating={preview !== null && creatingSlug === preview.slug}
+        disabled={creatingSlug !== null}
+        onUse={() => preview && void createFromTemplate(preview)}
+        onClose={() => setPreview(null)}
+      />
     </>
+  );
+}
+
+/**
+ * Full-size live preview of a template before committing. Renders the real
+ * renderer (not a screenshot) at readable scale, with the same "Use" action as
+ * the card. Closes on backdrop click or Escape.
+ */
+function TemplatePreview({
+  template,
+  creating,
+  disabled,
+  onUse,
+  onClose,
+}: {
+  template: TemplateDto | null;
+  creating: boolean;
+  disabled: boolean;
+  onUse: () => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    if (!template) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    // Lock scroll behind the modal.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [template, onClose]);
+
+  return (
+    <AnimatePresence>
+      {template && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          onClick={onClose}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Preview of ${template.name}`}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4 backdrop-blur-sm sm:p-8"
+        >
+          <motion.div
+            initial={{ opacity: 0, y: 16, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 16, scale: 0.98 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            onClick={(event) => event.stopPropagation()}
+            className="flex max-h-full w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-paper-raised shadow-lift ring-1 ring-rule md:flex-row"
+          >
+            {/* The document, scrollable if it overflows the viewport height. */}
+            <div className="scrollbar-on-dark min-h-0 flex-1 overflow-auto bg-canvas p-4 sm:p-8">
+              <div className="mx-auto w-full max-w-[26rem] overflow-hidden rounded-sm shadow-page ring-1 ring-black/5">
+                <ResumeThumbnail
+                  templateSlug={template.slug}
+                  content={template.sampleContent}
+                  theme={template.defaultTheme}
+                />
+              </div>
+            </div>
+
+            {/* Meta + commit. */}
+            <div className="flex shrink-0 flex-col gap-4 border-t border-rule p-6 md:w-72 md:border-l md:border-t-0">
+              <div>
+                <span className="font-mono text-[0.625rem] uppercase tracking-[0.12em] text-ink-faint">
+                  {template.category}
+                </span>
+                <h2 className="mt-1.5 font-display text-2xl tracking-tight">{template.name}</h2>
+                <p className="mt-2 text-sm leading-relaxed text-ink-muted text-pretty">
+                  {template.description}
+                </p>
+              </div>
+
+              <div className="mt-auto flex flex-col gap-2">
+                <Button size="md" onClick={onUse} disabled={disabled} className="w-full">
+                  {creating ? "Creating…" : "Use this template"}
+                </Button>
+                <Button size="md" variant="ghost" onClick={onClose} className="w-full">
+                  Close
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -194,5 +359,23 @@ function SkeletonGrid() {
         </div>
       ))}
     </div>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      width={22}
+      height={22}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M12 5v14M5 12h14" />
+    </svg>
   );
 }

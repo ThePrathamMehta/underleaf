@@ -121,3 +121,19 @@ export function createEmptyContent(): ResumeContent {
     ),
   };
 }
+
+/**
+ * A truly blank document for "Start from Blank": empty personal info and a few
+ * scaffolded sections with *no* items, so the canvas has structure to build on
+ * without any placeholder content to clear out first.
+ */
+export function createBlankContent(): ResumeContent {
+  return {
+    personalInfo: { name: "", title: "", email: "", phone: "", location: "", links: [] },
+    sections: [
+      { id: makeId("sec"), type: "experience", title: SECTION_DEFAULT_TITLES.experience, order: 0, visible: true, items: [] },
+      { id: makeId("sec"), type: "education", title: SECTION_DEFAULT_TITLES.education, order: 1, visible: true, items: [] },
+      { id: makeId("sec"), type: "skills", title: SECTION_DEFAULT_TITLES.skills, order: 2, visible: true, items: [] },
+    ],
+  };
+}

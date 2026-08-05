@@ -1,6 +1,13 @@
 {
   "extends": "@repo/typescript-config/react-library.json",
   "compilerOptions": {
+    // @repo/ui ships raw TSX that Next transpiles, and resolves @repo/types
+    // through its extensionless exports map. The base config's NodeNext
+    // resolution can't follow that map, so this package's own `check-types`
+    // reported hundreds of phantom "has no exported member" errors while the
+    // app compiled fine. Matches how the code is actually consumed.
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "outDir": "dist",
     "strictNullChecks": true
   },

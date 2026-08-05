@@ -1,15 +1,16 @@
 "use client";
 
-import Link from "next/link";
 import type { PageSize, Theme } from "@repo/types";
 import { FONT_FAMILIES } from "@repo/types";
 import { Button } from "../button";
 import { Logo } from "../logo";
 import type { SaveStatus } from "../../lib/use-autosave";
 import { FieldLabel, IconButton, Popover, Segmented, Slider, SwatchRow, ToolbarDivider } from "./controls";
+import { UserMenu } from "./user-menu";
+import { ThemeToggle } from "../theme-toggle";
 
 /** Human labels for the closed font enum; keys must match FONT_FAMILIES. */
-const FONT_LABELS: Record<Theme["fontFamily"], string> = {
+export const FONT_LABELS: Record<Theme["fontFamily"], string> = {
   inter: "Inter",
   lato: "Lato",
   roboto: "Roboto",
@@ -60,6 +61,8 @@ export function EditorToolbar({
   onZoomChange,
   onTemplateChange,
   onExport,
+  onBack,
+  onAddPage,
 }: {
   title: string;
   theme: Theme;
@@ -79,6 +82,8 @@ export function EditorToolbar({
   onZoomChange: (zoom: number) => void;
   onTemplateChange: (slug: string) => void;
   onExport: () => void;
+  onBack: () => void;
+  onAddPage: () => void;
 }) {
   const activeTemplate = templates.find((t) => t.slug === templateSlug);
 
@@ -86,9 +91,9 @@ export function EditorToolbar({
     <header className="sticky top-0 z-40 border-b border-rule bg-paper/85 backdrop-blur-md">
       {/* Row 1 — document identity and destination-level actions. */}
       <div className="flex h-14 items-center gap-3 px-4">
-        <Link href="/dashboard" className="shrink-0" aria-label="Back to dashboard">
+        <button type="button" onClick={onBack} className="shrink-0" aria-label="Back to dashboard">
           <Logo className="h-6 w-auto" />
-        </Link>
+        </button>
 
         <div className="mx-1 h-5 w-px shrink-0 bg-rule" aria-hidden />
 
@@ -102,13 +107,17 @@ export function EditorToolbar({
 
         <SaveIndicator status={status} />
 
+        <ThemeToggle />
+        <UserMenu />
+
         <Button size="sm" onClick={onExport} disabled={exporting}>
           {exporting ? "Preparing…" : "Export PDF"}
         </Button>
       </div>
 
-      {/* Row 2 — document formatting. */}
-      <div className="flex h-12 items-center gap-1 overflow-x-auto border-t border-rule px-4">
+      {/* Row 2 — document formatting. Scrolls horizontally on a narrow window;
+          its scrollbar is hidden because it would sit across the buttons. */}
+      <div className="scrollbar-none flex h-12 items-center gap-1 overflow-x-auto border-t border-rule px-4">
         <IconButton label="Undo" onClick={onUndo} disabled={!canUndo}>
           <UndoIcon />
         </IconButton>
@@ -117,6 +126,10 @@ export function EditorToolbar({
         </IconButton>
 
         <ToolbarDivider />
+
+        {/* Font and color apply to the whole document. Per-selection formatting
+            (bold/italic/underline on a single word, per-run colour) lives in the
+            SelectionToolbar mounted in the editor page. */}
 
         {/* Typeface */}
         <Popover
@@ -278,6 +291,17 @@ export function EditorToolbar({
           value={theme.pageSize}
           onChange={(pageSize) => onThemeChange({ pageSize })}
         />
+
+        <ToolbarDivider />
+
+        <button
+          type="button"
+          onClick={onAddPage}
+          className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[0.8125rem] text-ink-muted transition-colors duration-150 hover:bg-paper-sunken hover:text-ink"
+        >
+          <AddPageIcon />
+          <span>Add page</span>
+        </button>
 
         <ToolbarDivider />
 
@@ -467,6 +491,17 @@ function PlusIcon() {
   return (
     <svg {...svg}>
       <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function AddPageIcon() {
+  return (
+    <svg {...svg}>
+      <path d="M13 3H7a2 2 0 0 0-2 2v9" />
+      <path d="M13 3v5h5" />
+      <path d="M18 8v5" />
+      <path d="M8.5 19H2.5M5.5 16v6" />
     </svg>
   );
 }

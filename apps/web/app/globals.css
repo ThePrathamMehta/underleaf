@@ -131,6 +131,41 @@
   html {
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+
+    /* Slim, themed scrollbars. Both properties are inherited, so setting them
+       once here covers every scroll container in the app. The browser default
+       is a wide grey slab that reads as an OS artefact bolted to the side of a
+       warm paper interface — loudest in the editor, where it runs the full
+       height of the canvas right beside the page. */
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+
+  /* WebKit's equivalent, for engines that don't implement the two properties
+     above. Where both are supported the standard properties win, and the rules
+     here are simply ignored. */
+  ::-webkit-scrollbar {
+    width: 11px;
+    height: 11px;
+  }
+
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    border-radius: 999px;
+    /* Transparent border plus content-box clipping: the thumb paints as a slim
+       pill with air around it, while the grab target stays the full width the
+       pointer expects. */
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-hover);
   }
 
   body {
@@ -151,6 +186,32 @@
 }
 
 @layer components {
+  /* For scroll containers sitting on the dark editor canvas rather than on
+     paper — the same slim shape, inverted contrast. */
+  .scrollbar-on-dark {
+    scrollbar-color: var(--scrollbar-thumb-on-dark) transparent;
+  }
+
+  .scrollbar-on-dark::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb-on-dark);
+  }
+
+  .scrollbar-on-dark::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-on-dark-hover);
+  }
+
+  /* A strip of chrome that scrolls only on narrow windows (the toolbar's
+     formatting row). A scrollbar there would sit under the buttons as a
+     permanent smudge, so it's hidden — the row is short enough to be obviously
+     draggable, and nothing is reachable only by scrolling it. */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
   /* A hairline rule that fades out, used to close marketing sections. */
   .rule-fade {
     height: 1px;
@@ -177,5 +238,185 @@
 
   .text-pretty {
     text-wrap: pretty;
+  }
+}
+
+/* --- Leaf mark, splash, caret ---------------------------------------------
+   Deliberately outside @layer components. Tailwind only emits a layered rule
+   when it sees the class in the source, and it never sees the @keyframes at
+   all — layering these would ship the animation properties with nothing to
+   interpolate. The .splash rules are also keyed off an attribute on <html>
+   that no class scan can find. Unlayered means always emitted, which is what
+   both need. */
+
+/* The blade of the wordmark's leaf flutters while the logo is hovered or
+   focused. Plain CSS rather than Framer so Logo stays a server component —
+   it renders in every header on every page. */
+.logo-leaf {
+  /* SVG transforms default to the user-space origin (0,0 of the viewBox);
+     fill-box re-anchors them to the blade's own box so it pivots on the point
+     where it meets the stem instead of swinging from the corner. */
+  transform-box: fill-box;
+  transform-origin: 0% 100%;
+  transition: transform 300ms ease-out;
+}
+
+.logo:hover .logo-leaf,
+.logo:focus-visible .logo-leaf {
+  animation: leaf-sway 1.4s ease-in-out infinite;
+}
+
+@keyframes leaf-sway {
+  0% {
+    transform: rotate(0deg) translate(0, 0);
+  }
+  22% {
+    transform: rotate(-9deg) translate(-0.3px, -1.1px);
+  }
+  48% {
+    transform: rotate(6deg) translate(0.4px, -1.6px);
+  }
+  72% {
+    transform: rotate(-4deg) translate(-0.2px, -0.8px);
+  }
+  100% {
+    transform: rotate(0deg) translate(0, 0);
+  }
+}
+
+/* The first-run splash. Static server-rendered markup; the inline script in
+   app/layout.tsx decides whether it runs by setting data-splash on <html>
+   before first paint, so a repeat visitor never sees a frame of it and React
+   never has to mutate the node. Inert without that attribute. */
+.splash {
+  display: none;
+}
+
+html[data-splash='run'] .splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
+  background: var(--paper);
+  /* Holds through the mark's entrance, then clears. The inline script drops the
+     attribute just after this ends, which is what actually takes the overlay
+     out of the layout — fill-forwards only hides it. */
+  animation: splash-out 460ms cubic-bezier(0.4, 0, 1, 1) 1850ms forwards;
+}
+
+html[data-splash='run'] body {
+  overflow: hidden;
+}
+
+@keyframes splash-out {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+.splash-leaf {
+  color: var(--accent);
+}
+
+/* The blade unfolds… */
+.splash-blade {
+  transform-box: fill-box;
+  transform-origin: 0% 100%;
+  animation: blade-unfold 900ms cubic-bezier(0.22, 1, 0.36, 1) 120ms both;
+}
+
+@keyframes blade-unfold {
+  from {
+    transform: rotate(-38deg) scale(0.35);
+    opacity: 0;
+  }
+  to {
+    transform: rotate(0deg) scale(1);
+    opacity: 1;
+  }
+}
+
+/* …and the stem draws itself underneath it. The dash length is a little over
+   the path's own length, so the line is fully hidden at offset. */
+.splash-stem {
+  stroke-dasharray: 22;
+  stroke-dashoffset: 22;
+  animation: stem-draw 780ms cubic-bezier(0.22, 1, 0.36, 1) 340ms forwards;
+}
+
+@keyframes stem-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.splash-word {
+  animation: splash-rise 700ms cubic-bezier(0.22, 1, 0.36, 1) 620ms both;
+}
+
+@keyframes splash-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.splash-rule {
+  animation: splash-widen 900ms cubic-bezier(0.22, 1, 0.36, 1) 820ms both;
+}
+
+@keyframes splash-widen {
+  from {
+    transform: scaleX(0);
+    opacity: 0;
+  }
+  to {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+}
+
+/* A text caret, for the hero's "edit on the page" mock. */
+.caret-blink {
+  animation: caret-blink 1.1s steps(1, end) infinite;
+}
+
+@keyframes caret-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  46%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Outside every layer, so it wins over the rules above regardless of order.
+   The splash script bails on this preference before it ever sets the
+   attribute; these are the belt for that pair of braces, and they also cover
+   the decorative loops, which have no JS to consult the preference. */
+@media (prefers-reduced-motion: reduce) {
+  html[data-splash='run'] .splash {
+    display: none;
+  }
+
+  html[data-splash='run'] body {
+    overflow: visible;
+  }
+
+  .logo:hover .logo-leaf,
+  .logo:focus-visible .logo-leaf,
+  .caret-blink {
+    animation: none;
   }
 }

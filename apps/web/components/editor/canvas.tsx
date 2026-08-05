@@ -3,12 +3,32 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { ResumeContent, Theme } from "@repo/types";
+import { pageCount } from "@repo/types";
 import { ResumeDocument, ResumeEditingProvider, type FieldPath } from "@repo/ui/resume";
 import { PAGE_DIMENSIONS } from "@repo/ui/resume/styles";
 
 const MM_TO_PX = 96 / 25.4;
+/** Screen gap between stacked page sheets, matching the CSS in themeToCss. */
+const PAGE_GAP_MM = 6;
 
-type Anchor = { top: number; left: number; width: number };
+/**
+ * How far left of the page the per-item actions sit, and how wide their column
+ * is. The overlay pads itself back to the page edge with the difference, so the
+ * pointer crosses no dead gap on its way to the buttons.
+ */
+const ITEM_ACTION_OFFSET = 38;
+const ITEM_ACTION_WIDTH = 24;
+
+/**
+ * Grace period before hover actions disappear.
+ *
+ * Travelling from the entry to its buttons means leaving the page element, and
+ * clearing on that instant made the buttons impossible to click — they vanished
+ * as the pointer arrived.
+ */
+const HOVER_CLEAR_MS = 260;
+
+type Anchor = { top: number; left: number; width: number; height: number };
 
 /**
  * The document canvas.
@@ -47,10 +67,15 @@ export function EditorCanvas({
   const pageRef = useRef<HTMLDivElement>(null);
   const [sectionAnchor, setSectionAnchor] = useState<Anchor | null>(null);
   const [hoveredItem, setHoveredItem] = useState<{ id: string; anchor: Anchor } | null>(null);
+  const hoverClearRef = useRef<number | null>(null);
 
   const page = PAGE_DIMENSIONS[theme.pageSize];
   const pageWidthPx = page.width * MM_TO_PX;
   const pageHeightPx = page.height * MM_TO_PX;
+  // Reserve height for every page plus the on-screen gaps between them; the
+  // transform doesn't affect flow, so the wrapper must account for the stack.
+  const pages = pageCount(content);
+  const stackHeightPx = pages * pageHeightPx + (pages - 1) * PAGE_GAP_MM * MM_TO_PX;
 
   /** Converts a client rect into coordinates within the scrolling container. */
   const toLocal = useCallback((rect: DOMRect): Anchor => {
@@ -60,8 +85,25 @@ export function EditorCanvas({
       top: rect.top - base.top + container.scrollTop,
       left: rect.left - base.left + container.scrollLeft,
       width: rect.width,
+      // Without this the overlay box collapsed to zero height, which put the
+      // focus ring and the "Add entry" button over the section heading instead
+      // of around and below the section.
+      height: rect.height,
     };
   }, []);
+
+  const cancelHoverClear = useCallback(() => {
+    if (hoverClearRef.current === null) return;
+    window.clearTimeout(hoverClearRef.current);
+    hoverClearRef.current = null;
+  }, []);
+
+  const scheduleHoverClear = useCallback(() => {
+    cancelHoverClear();
+    hoverClearRef.current = window.setTimeout(() => setHoveredItem(null), HOVER_CLEAR_MS);
+  }, [cancelHoverClear]);
+
+  useEffect(() => cancelHoverClear, [cancelHoverClear]);
 
   // Re-measure whenever the focused section, content or zoom changes — all three
   // can move the anchor, and a stale overlay points at the wrong place.
@@ -95,9 +137,12 @@ export function EditorCanvas({
   function handleCanvasPointerOver(event: React.PointerEvent) {
     const itemEl = (event.target as HTMLElement).closest<HTMLElement>("[data-item-id]");
     if (!itemEl || !scrollRef.current) {
-      setHoveredItem(null);
+      // Still inside the page, just between entries — give the same grace as
+      // leaving it, so crossing a gap doesn't dismiss the buttons.
+      scheduleHoverClear();
       return;
     }
+    cancelHoverClear();
     setHoveredItem({ id: itemEl.dataset.itemId!, anchor: toLocal(itemEl.getBoundingClientRect()) });
   }
 
@@ -117,7 +162,10 @@ export function EditorCanvas({
     hoveredItemSection.type !== "certifications";
 
   return (
-    <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-auto bg-canvas">
+    <div
+      ref={scrollRef}
+      className="scrollbar-on-dark relative min-h-0 flex-1 overflow-auto bg-canvas"
+    >
       {/* Faint grid, so the page reads as a sheet resting on a surface. */}
       <div
         aria-hidden
@@ -133,21 +181,24 @@ export function EditorCanvas({
         <div
           style={{
             width: pageWidthPx * zoom,
-            // Reserve the scaled height; the transform alone doesn't affect flow.
-            height: pageHeightPx * zoom,
+            // Reserve the scaled height of the whole page stack; the transform
+            // alone doesn't affect flow.
+            height: stackHeightPx * zoom,
           }}
         >
           <div
             ref={pageRef}
             onPointerOver={handleCanvasPointerOver}
-            onPointerLeave={() => setHoveredItem(null)}
+            onPointerLeave={scheduleHoverClear}
             onFocus={handleCanvasFocusIn}
             style={{
               width: pageWidthPx,
               transform: `scale(${zoom})`,
               transformOrigin: "top left",
             }}
-            className="shadow-page ring-1 ring-black/5"
+            // Per-sheet shadow lives on each .rd-page (see canvas page styles),
+            // so multi-page stacks show a shadow around every sheet.
+            className="rd-canvas-host"
           >
             <ResumeEditingProvider value={{ onFieldChange, onFieldCommit }}>
               <ResumeDocument templateSlug={templateSlug} content={content} theme={theme} />
@@ -167,7 +218,12 @@ export function EditorCanvas({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.12 }}
             className="pointer-events-none absolute z-10"
-            style={{ top: sectionAnchor.top, left: sectionAnchor.left, width: sectionAnchor.width }}
+            style={{
+              top: sectionAnchor.top,
+              left: sectionAnchor.left,
+              width: sectionAnchor.width,
+              height: sectionAnchor.height,
+            }}
           >
             <div
               className="absolute -inset-x-2 -inset-y-1.5 rounded-md ring-1 ring-accent-ring"
@@ -195,8 +251,19 @@ export function EditorCanvas({
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -4 }}
             transition={{ duration: 0.12 }}
-            className="absolute z-10 flex flex-col gap-1"
-            style={{ top: hoveredItem.anchor.top, left: hoveredItem.anchor.left - 38 }}
+            // Keeping the pointer here keeps the buttons alive; the strip runs
+            // the full height of the entry and all the way back to the page
+            // edge, so there's a continuous hover path from text to button.
+            onPointerEnter={cancelHoverClear}
+            onPointerLeave={scheduleHoverClear}
+            className="absolute z-10 flex flex-col items-start gap-1"
+            style={{
+              top: hoveredItem.anchor.top,
+              left: hoveredItem.anchor.left - ITEM_ACTION_OFFSET,
+              minHeight: hoveredItem.anchor.height,
+              // The bridge: padding, not margin, so it's part of the hover area.
+              paddingRight: ITEM_ACTION_OFFSET - ITEM_ACTION_WIDTH,
+            }}
           >
             {hoveredItemSupportsBullets && (
               <ItemAction
@@ -211,6 +278,7 @@ export function EditorCanvas({
               danger
               onClick={() => {
                 onRemoveItem(hoveredItemSection.id, hoveredItem.id);
+                cancelHoverClear();
                 setHoveredItem(null);
               }}
             >

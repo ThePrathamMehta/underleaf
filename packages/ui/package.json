@@ -6,6 +6,7 @@
     "./resume": "./src/resume/resume-document.tsx",
     "./resume/styles": "./src/resume/resume-styles.ts",
     "./resume/editable": "./src/resume/editable.tsx",
+    "./resume/rich-text": "./src/resume/rich-text.ts",
     "./resume/primitives": "./src/resume/primitives.tsx",
     "./resume/fonts": "./src/resume/fonts.ts",
     "./tokens.css": "./src/tokens.css",

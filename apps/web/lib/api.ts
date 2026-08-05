@@ -84,7 +84,7 @@ export const api = {
     return request<{ resume: ResumeWithTemplateDto }>(`/resumes/${id}`);
   },
 
-  createResume(body: { templateId: string; title?: string }) {
+  createResume(body: { templateId: string; title?: string; blank?: boolean }) {
     return request<{ resume: ResumeWithTemplateDto }>("/resumes", { method: "POST", body });
   },
 
@@ -108,5 +108,14 @@ export const api = {
   exportUrl(id: string, pageSize?: string) {
     const query = pageSize ? `?pageSize=${pageSize}` : "";
     return `${API_URL}/resumes/${id}/export.pdf${query}`;
+  },
+
+  /**
+   * Absolute URL that *starts* a provider's server-side OAuth flow. The
+   * provider itself is what later calls `/auth/:provider/callback`; sending the
+   * browser straight to the callback would arrive with no authorization code.
+   */
+  oauthUrl(provider: "google" | "github") {
+    return `${API_URL}/auth/${provider}`;
   },
 };

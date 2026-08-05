@@ -7,8 +7,11 @@ type Variant = "primary" | "secondary" | "ghost" | "danger";
 type Size = "sm" | "md" | "lg";
 
 const VARIANTS: Record<Variant, string> = {
+  // Dark text on the brightened dark-mode accent: white-on-accent would drop
+  // below AA once the accent lifts for dark backgrounds. `text-paper` resolves
+  // to the dark ground colour under `.dark`, giving a legible ~AA contrast.
   primary:
-    "bg-accent text-white shadow-[0_1px_2px_rgb(0_0_0/0.12)] hover:bg-accent-hover active:translate-y-px",
+    "bg-accent text-white dark:text-paper shadow-[0_1px_2px_rgb(0_0_0/0.12)] hover:bg-accent-hover active:translate-y-px",
   secondary:
     "bg-paper-raised text-ink ring-1 ring-inset ring-rule-strong hover:bg-paper-sunken active:translate-y-px",
   ghost: "text-ink-muted hover:bg-paper-sunken hover:text-ink",

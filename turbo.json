@@ -2,7 +2,24 @@
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
   "globalEnv": ["NODE_ENV"],
-  "globalPassThroughEnv": ["DATABASE_URL", "JWT_SECRET", "PORT", "WEB_ORIGIN", "PUPPETEER_CACHE_DIR"],
+  // Read at runtime, not baked into any build output. The OAuth block was added
+  // with the provider routes but never declared here, which is what turbo's
+  // no-undeclared-env-vars lint was reporting: undeclared vars aren't passed
+  // through, so a strict-env run would have silently disabled both providers
+  // (config.ts treats a missing client id/secret as "not configured").
+  "globalPassThroughEnv": [
+    "DATABASE_URL",
+    "JWT_SECRET",
+    "PORT",
+    "WEB_ORIGIN",
+    "PUPPETEER_CACHE_DIR",
+    "API_ORIGIN",
+    "API_URL",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "GITHUB_CLIENT_ID",
+    "GITHUB_CLIENT_SECRET"
+  ],
   "tasks": {
     "db:generate": {
       "cache": false,
@@ -33,7 +50,7 @@
       "dependsOn": ["^check-types", "db:generate"]
     },
     "dev": {
-      "dependsOn": ["db:generate"],
+      // "dependsOn": ["db:generate"],
       "cache": false,
       "persistent": true
     }

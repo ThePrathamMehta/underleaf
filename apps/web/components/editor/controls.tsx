@@ -1,9 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 
-/** Small square icon button used throughout the editor chrome. */
+/**
+ * Small square icon button used throughout the editor chrome.
+ *
+ * Note for any future control that acts on the *current text selection* inside
+ * a focused contentEditable (e.g. bold/italic on selected text): a normal click
+ * moves focus to the button first, collapsing the selection before the handler
+ * runs. Preserve it by preventing the default focus shift on mousedown —
+ *   onMouseDown={(e) => e.preventDefault()}   // keep the caret/selection
+ *   onClick={() => applyToSelection()}
+ * The controls here don't touch the selection, so they don't need it yet.
+ */
 export function IconButton({
   label,
   active = false,
@@ -31,6 +42,14 @@ export function ToolbarDivider() {
 /**
  * A popover anchored to its trigger. Closes on outside click and Escape;
  * without both, a stray click leaves panels stacked over the canvas.
+ *
+ * The panel is rendered into `document.body` rather than beside its trigger.
+ * The toolbar's formatting row is `overflow-x-auto`, and CSS computes the other
+ * axis of a scroll container to `auto` as well — so an absolutely positioned
+ * child became *scrollable overflow* of that 48px-tall row, which showed up as
+ * a stray vertical scrollbar with the panel clipped out of sight. A portal puts
+ * the panel outside every clipping ancestor; it's positioned from the trigger's
+ * viewport rect instead, and re-measured while open.
  */
 export function Popover({
   trigger,
@@ -44,13 +63,65 @@ export function Popover({
   width?: number;
 }) {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{
+    top?: number;
+    bottom?: number;
+    left: number;
+    maxHeight: number;
+    flipped: boolean;
+  } | null>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Portals need `document`, which doesn't exist during the server render.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  /** Anchors the panel to the trigger, kept inside the viewport. */
+  const reposition = useCallback(() => {
+    const anchor = triggerRef.current?.getBoundingClientRect();
+    if (!anchor) return;
+
+    const GAP = 8;
+    const EDGE = 8;
+    const preferred = align === "right" ? anchor.right - width : anchor.left;
+
+    const roomBelow = window.innerHeight - anchor.bottom - GAP - EDGE;
+    const roomAbove = anchor.top - GAP - EDGE;
+    // Open downward by default; flip up only when below is cramped and above is
+    // roomier, so a trigger near the viewport floor (the section panel's "Add
+    // section") doesn't open into a sliver.
+    const flipped = roomBelow < 220 && roomAbove > roomBelow;
+
+    setPosition({
+      top: flipped ? undefined : anchor.bottom + GAP,
+      bottom: flipped ? window.innerHeight - anchor.top + GAP : undefined,
+      // Clamp so a trigger near either edge doesn't push the panel off-screen.
+      left: Math.max(EDGE, Math.min(preferred, window.innerWidth - width - EDGE)),
+      // Tall panels scroll internally rather than running past the edge.
+      maxHeight: Math.max(160, flipped ? roomAbove : roomBelow),
+      flipped,
+    });
+  }, [align, width]);
+
+  // Measured before opening so the first painted frame is already in place.
+  const toggle = useCallback(() => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    reposition();
+    setOpen(true);
+  }, [open, reposition]);
 
   useEffect(() => {
     if (!open) return;
 
     function onPointerDown(event: PointerEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      // The panel is portaled, so it isn't a DOM descendant of the trigger.
+      if (triggerRef.current?.contains(target) || panelRef.current?.contains(target)) return;
+      setOpen(false);
     }
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") setOpen(false);
@@ -58,32 +129,50 @@ export function Popover({
 
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", reposition);
+    // Capture phase: the trigger also moves when an ancestor scrolls, such as
+    // the toolbar row scrolling horizontally on a narrow window.
+    window.addEventListener("scroll", reposition, true);
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
     };
-  }, [open]);
+  }, [open, reposition]);
 
   return (
-    <div ref={rootRef} className="relative">
-      {trigger({ open, toggle: () => setOpen((v) => !v) })}
+    <div ref={triggerRef} className="relative shrink-0">
+      {trigger({ open, toggle })}
 
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -4, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -4, scale: 0.98 }}
-            transition={{ duration: 0.15, ease: [0.22, 1, 0.36, 1] }}
-            style={{ width }}
-            className={`absolute top-[calc(100%+8px)] z-50 origin-top rounded-xl bg-paper-raised p-3 shadow-lift ring-1 ring-rule ${
-              align === "right" ? "right-0" : "left-0"
-            }`}
-          >
-            {children(() => setOpen(false))}
-          </motion.div>
+      {mounted &&
+        createPortal(
+          <AnimatePresence>
+            {open && position && (
+              <motion.div
+                ref={panelRef}
+                initial={{ opacity: 0, y: -4, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -4, scale: 0.98 }}
+                transition={{ duration: 0.15, ease: [0.22, 1, 0.36, 1] }}
+                style={{
+                  width,
+                  maxWidth: "calc(100vw - 1rem)",
+                  top: position.top,
+                  bottom: position.bottom,
+                  left: position.left,
+                  maxHeight: position.maxHeight,
+                }}
+                className={`fixed z-50 overflow-y-auto rounded-xl bg-paper-raised p-3 shadow-lift ring-1 ring-rule ${
+                  position.flipped ? "origin-bottom" : "origin-top"
+                }`}
+              >
+                {children(() => setOpen(false))}
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body,
         )}
-      </AnimatePresence>
     </div>
   );
 }

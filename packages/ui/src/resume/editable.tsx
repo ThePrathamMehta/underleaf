@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useRef } from "react";
+import { htmlToPlainText, plainTextToHtml, sanitizeInlineHtml } from "./rich-text";
 
 /** Path into the resume content JSON, e.g. ["sections", 2, "items", 0, "role"]. */
 export type FieldPath = (string | number)[];
@@ -31,6 +32,14 @@ type EditableTextProps = {
   /** Renders as a block element; inline by default to sit within a text run. */
   as?: "span" | "div" | "p" | "h1" | "h2" | "li";
   multiline?: boolean;
+  /**
+   * Whether the field may carry inline formatting (bold, colour, links).
+   *
+   * Off for fields whose string is really structured data rather than prose —
+   * the skills list is round-tripped through a comma split, so markup in it
+   * would be sliced apart at the commas.
+   */
+  rich?: boolean;
 };
 
 /**
@@ -40,6 +49,13 @@ type EditableTextProps = {
  * node the user is typing into, or the caret jumps to the start on every
  * keystroke. The DOM is the source of truth during a focused edit; props take
  * over again once focus leaves.
+ *
+ * In `rich` mode the field's value is a small subset of inline HTML (see
+ * rich-text.ts) rather than plain text, which is what lets the selection
+ * toolbar bold or recolour a single word. The DOM is only sanitized on paste
+ * and on blur — sanitizing on every keystroke would rewrite the node mid-edit
+ * and collapse the caret, which is the exact failure this component exists to
+ * avoid.
  */
 export function EditableText({
   value,
@@ -48,24 +64,52 @@ export function EditableText({
   placeholder,
   as: Tag = "span",
   multiline = false,
+  rich = true,
 }: EditableTextProps) {
   const editing = useResumeEditing();
   const ref = useRef<HTMLElement>(null);
+  // The last value we know this node's DOM holds. It lets the effect tell an
+  // external change (undo/redo, template switch, reset) apart from the echo of
+  // the user's own keystroke, so we only rewrite the node — and disturb the
+  // caret — when the text genuinely came from elsewhere. Starts null so the
+  // first mount always writes, even for a non-empty value.
+  const lastKnownValueRef = useRef<string | null>(null);
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    // Skip while focused — see the caret note above.
-    if (document.activeElement === el) return;
-    if (el.textContent !== value) {
+    // The user's own edit already put this text in the DOM; writing it back
+    // would collapse the caret for no reason. Null on mount, so the first run
+    // still writes.
+    if (value === lastKnownValueRef.current) return;
+    lastKnownValueRef.current = value;
+
+    if (rich) {
+      const html = sanitizeInlineHtml(value);
+      if (el.innerHTML !== html) el.innerHTML = html;
+    } else if (el.textContent !== value) {
       el.textContent = value;
     }
-  }, [value]);
+  }, [value, rich]);
 
   if (!editing) {
-    return <Tag className={className}>{value}</Tag>;
+    if (!rich) return <Tag className={className}>{value}</Tag>;
+    // Sanitized at render, not trusted from storage: this same path renders the
+    // exported PDF, and content can reach the database by routes other than
+    // this component.
+    return (
+      <Tag className={className} dangerouslySetInnerHTML={{ __html: sanitizeInlineHtml(value) }} />
+    );
   }
 
+  /** Reads the node's current value in whichever representation this field uses. */
+  function read(el: HTMLElement): string {
+    return rich ? el.innerHTML : (el.textContent ?? "");
+  }
+
+  // No React-managed children: the node's content is written imperatively above.
+  // Rendering {value} here would let React reconcile — and reset — the very
+  // text node the user is typing into on every keystroke.
   return (
     <Tag
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -74,11 +118,55 @@ export function EditableText({
       contentEditable
       suppressContentEditableWarning
       spellCheck
+      data-editable-field=""
+      data-rich={rich ? "" : undefined}
       data-placeholder={placeholder ?? ""}
       onInput={(event: React.FormEvent<HTMLElement>) => {
-        editing.onFieldChange(path, event.currentTarget.textContent ?? "");
+        // Record what the DOM now holds before telling the editor, so the
+        // resulting re-render's effect recognises this as our own edit and
+        // leaves the caret alone.
+        lastKnownValueRef.current = read(event.currentTarget);
+        editing.onFieldChange(path, lastKnownValueRef.current);
       }}
-      onBlur={editing.onFieldCommit}
+      onPaste={(event: React.ClipboardEvent<HTMLElement>) => {
+        // The browser would otherwise paste whole stylesheets and block
+        // elements out of Word or a web page. Take only what a resume field can
+        // represent, and insert it ourselves.
+        event.preventDefault();
+        const clipboard = event.clipboardData;
+        const html = rich ? clipboard.getData("text/html") : "";
+        const text = clipboard.getData("text/plain");
+
+        let insert = html ? sanitizeInlineHtml(html) : plainTextToHtml(text);
+        // A single-line field can't show newlines, and a pasted paragraph break
+        // would silently vanish on the next render otherwise.
+        if (!multiline) insert = insert.replace(/<br\s*\/?>/gi, " ");
+
+        document.execCommand("insertHTML", false, insert);
+      }}
+      onBlur={(event: React.FocusEvent<HTMLElement>) => {
+        // Focus moving into the selection toolbar isn't the end of an edit —
+        // its link box has to take focus to be typed into, and it then acts on
+        // this field's own nodes. Normalising here would replace those nodes
+        // and detach the range the toolbar saved, so leave the field alone and
+        // let the real blur (a click somewhere else) do the tidying.
+        const next = event.relatedTarget as HTMLElement | null;
+        if (next?.closest?.("[data-selection-toolbar]")) return;
+
+        // Normalise once the user is done: browsers leave behind their own
+        // markup (nested spans, <div> wrappers from Enter) that we don't want
+        // to store, but rewriting it mid-edit would move the caret.
+        if (rich) {
+          const el = event.currentTarget;
+          const clean = sanitizeInlineHtml(el.innerHTML);
+          if (clean !== el.innerHTML) {
+            el.innerHTML = clean;
+            lastKnownValueRef.current = clean;
+            editing.onFieldChange(path, clean);
+          }
+        }
+        editing.onFieldCommit();
+      }}
       onKeyDown={(event: React.KeyboardEvent<HTMLElement>) => {
         // Single-line fields shouldn't accept newlines that the JSON can't show.
         if (event.key === "Enter" && !multiline) {
@@ -86,13 +174,17 @@ export function EditableText({
           event.currentTarget.blur();
         }
       }}
-    >
-      {value}
-    </Tag>
+    />
   );
 }
 
-/** Renders `value` as a link in print, plain editable text in the editor. */
+/**
+ * Renders `value` as a link in print, plain editable text in the editor.
+ *
+ * Used for the contact links in the header, whose URL lives in a separate field
+ * — distinct from an inline link inside a bullet, which the selection toolbar
+ * creates as an `<a>` within the field's own HTML.
+ */
 export function EditableLink({
   value,
   path,
@@ -106,10 +198,14 @@ export function EditableLink({
     return <EditableText value={value} path={path} className={className} placeholder={placeholder} />;
   }
 
-  const href = url.startsWith("http") ? url : `https://${url}`;
+  // The label may carry its own formatting; the href never does.
+  const target = htmlToPlainText(url).trim();
+  const href = target.startsWith("http") ? target : `https://${target}`;
   return (
-    <a className={className} href={href}>
-      {value}
-    </a>
+    <a
+      className={className}
+      href={href}
+      dangerouslySetInnerHTML={{ __html: sanitizeInlineHtml(value) }}
+    />
   );
 }

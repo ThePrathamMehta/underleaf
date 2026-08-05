@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prisma } from "@repo/db";
 import {
   createResumeBodySchema,
+  createBlankContent,
   createEmptyContent,
   exportQuerySchema,
   resumeContentSchema,
@@ -11,7 +12,7 @@ import {
 } from "@repo/types";
 import { asyncHandler, notFound, validateBody, validateQuery } from "../middleware/errors.js";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
-import { parseContent, parseTheme, serializeResume, serializeResumeWithTemplate } from "../serializers.js";
+import { parseContent, parseTheme, serializeResumeWithTemplate } from "../serializers.js";
 import { exportResumePdf } from "../services/pdf.js";
 
 export const resumesRouter = Router();
@@ -49,7 +50,7 @@ resumesRouter.post(
   "/",
   validateBody(createResumeBodySchema),
   asyncHandler<AuthedRequest>(async (req, res) => {
-    const { templateId, title } = req.body;
+    const { templateId, title, blank } = req.body;
 
     const template = await prisma.template.findFirst({
       where: { OR: [{ id: templateId }, { slug: templateId }] },
@@ -58,14 +59,20 @@ resumesRouter.post(
 
     // Seeded templates carry sample content so a new resume opens with something
     // to edit; fall back to a blank document if that sample is ever absent.
+    // "Start from Blank" skips the sample entirely for a minimal scaffold.
     const sample = resumeContentSchema.safeParse(template.sampleContent);
+    const content = blank
+      ? createBlankContent()
+      : sample.success
+        ? sample.data
+        : createEmptyContent();
 
     const resume = await prisma.resume.create({
       data: {
         userId: req.userId,
         templateId: template.id,
-        title: title ?? `${template.name} Resume`,
-        content: sample.success ? sample.data : createEmptyContent(),
+        title: title ?? (blank ? "Untitled Resume" : `${template.name} Resume`),
+        content,
         theme: parseTheme(template.defaultTheme),
       },
       include: { template: true },

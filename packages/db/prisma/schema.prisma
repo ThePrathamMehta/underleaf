@@ -10,11 +10,19 @@ datasource db {
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
-  passwordHash String
+  // Nullable: OAuth-only users never set a password.
+  passwordHash String?
   name         String
   createdAt    DateTime @default(now())
 
+  // OAuth identity. Null for password-only accounts. The pair is unique so a
+  // provider account maps to exactly one user.
+  oauthProvider String?
+  oauthId       String?
+
   resumes Resume[]
+
+  @@unique([oauthProvider, oauthId])
 }
 
 model Template {

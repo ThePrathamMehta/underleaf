@@ -106,6 +106,73 @@ ${options.fontFaces ?? ""}
   background: transparent;
 }
 
+/* --- Inline formatting ---
+
+   Must come after the reset above, which flattens the font and text-decoration
+   of every descendant. These are the tags a field's own HTML may carry (see
+   rich-text.ts): the selection toolbar writes them, and without these rules
+   bold text would render at normal weight in both the editor and the PDF. */
+
+.rd-root b {
+  font-weight: 700;
+}
+
+.rd-root i {
+  font-style: italic;
+}
+
+.rd-root u {
+  text-decoration: underline;
+  text-underline-offset: 1.5pt;
+  text-decoration-thickness: 0.4pt;
+}
+
+.rd-root s {
+  text-decoration: line-through;
+  text-decoration-thickness: 0.4pt;
+}
+
+.rd-root sub,
+.rd-root sup {
+  font-size: 0.72em;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+}
+
+.rd-root sup {
+  top: -0.42em;
+}
+
+.rd-root sub {
+  bottom: -0.22em;
+}
+
+/* Highlight. printBackground is on for the export, so this survives to PDF —
+   which is why the default is a light wash rather than a saturated yellow. */
+.rd-root mark {
+  background: #fff2a8;
+  color: inherit;
+  padding: 0 0.4pt;
+  border-radius: 0.6pt;
+}
+
+/* An inline link inside a field, as opposed to the header's .rd-link. Colour
+   is inherited rather than accent-blue: a resume reads as a printed document,
+   and the underline is enough to mark it. */
+.rd-root a[href] {
+  text-decoration: underline;
+  text-underline-offset: 1.5pt;
+  text-decoration-thickness: 0.4pt;
+}
+
+/* Nested marks compose: a run that is both struck through and underlined keeps
+   both lines rather than the inner one winning. */
+.rd-root u s,
+.rd-root s u {
+  text-decoration: underline line-through;
+}
+
 .rd-page {
   width: var(--rd-page-width);
   min-height: var(--rd-page-height);
@@ -113,6 +180,39 @@ ${options.fontFaces ?? ""}
   background: #ffffff;
   position: relative;
   overflow: hidden;
+}
+
+/* --- Multi-page --- */
+
+/* Each .rd-page is one printed sheet; force a break after all but the last so
+   a resume with a single page (the common case) prints with no extra break. */
+.rd-page {
+  break-after: page;
+}
+.rd-page:last-child {
+  break-after: auto;
+}
+
+/* On screen the sheets stack with a small gap so they read as separate pages;
+   print ignores this and uses the real page break above. */
+@media screen {
+  .rd-page + .rd-page {
+    margin-top: 6mm;
+  }
+  /* Per-sheet drop shadow, only inside the editor canvas host — so the gallery
+     thumbnails and the PDF (print media) are unaffected. */
+  .rd-canvas-host .rd-page {
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.18), 0 12px 36px rgb(0 0 0 / 0.22);
+    outline: 1px solid rgb(0 0 0 / 0.05);
+  }
+}
+
+/* Continuation pages don't repeat the name/contact header. Scoped to
+   data-page-index so page 0 keeps its header untouched. */
+.rd-page[data-page-index]:not([data-page-index="0"]) header,
+.rd-page[data-page-index]:not([data-page-index="0"]) .rd-header-divider,
+.rd-page[data-page-index]:not([data-page-index="0"]) .rd-band {
+  display: none;
 }
 
 /* --- Header --- */
@@ -399,6 +499,43 @@ ${options.fontFaces ?? ""}
 .rd-root [contenteditable]:empty::before {
   content: attr(data-placeholder);
   opacity: 0.35;
+}
+
+/* --- Editor-only affordances ---
+
+   Scoped to .rd-canvas-host (the editor's page wrapper) and to screen media,
+   so none of this reaches the exported PDF or the gallery thumbnails. */
+
+@media screen {
+  /* A quiet hover tint, so it's discoverable which runs of the page are text
+     you can click into. Uses a background rather than an outline to avoid
+     shifting any glyph position. */
+  .rd-canvas-host [contenteditable]:hover {
+    background: rgb(194 65 12 / 0.06);
+    border-radius: 1pt;
+  }
+
+  .rd-canvas-host [contenteditable]:focus {
+    outline: none;
+    background: rgb(194 65 12 / 0.09);
+    border-radius: 1pt;
+  }
+
+  /* The two halves of a date range are separate fields while editing, so give
+     the pair a little breathing room and keep the dash out of the tab order. */
+  .rd-canvas-host .rd-date-range {
+    white-space: nowrap;
+  }
+
+  .rd-canvas-host .rd-date-sep {
+    opacity: 0.45;
+  }
+
+  /* An empty optional field (tech, issuer, subheading) renders only in the
+     editor. Dim its separator so a half-filled entry doesn't look broken. */
+  .rd-canvas-host .rd-entry-divider {
+    opacity: 0.45;
+  }
 }
 `.trim();
 }

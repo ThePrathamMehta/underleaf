@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "../lib/auth-context";
 import { Button, ButtonLink } from "./button";
 import { Logo } from "./logo";
+import { ThemeToggle } from "./theme-toggle";
 
 /** Marketing/app header. The editor uses its own toolbar instead of this. */
 export function SiteHeader() {
@@ -20,6 +21,8 @@ export function SiteHeader() {
           <NavLink href="/templates" active={pathname === "/templates"}>
             Templates
           </NavLink>
+
+          <ThemeToggle className="ml-1" />
 
           {loading ? (
             // Reserve the space so the header doesn't jolt when auth resolves.

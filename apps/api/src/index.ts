@@ -28,6 +28,16 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/auth", authRouter);
+
+// Mount OAuth routes lazily — only when at least one provider is configured.
+// This keeps the API boot path identical for deployments without credentials.
+// The import is awaited rather than fired-and-forgotten: Express matches
+// middleware in registration order, so a router added after the 404 catch-all
+// below would never be reached.
+if (config.oauthEnabled) {
+  const { createOAuthRouter } = await import("./routes/oauth.js");
+  app.use("/auth", createOAuthRouter());
+}
 app.use("/templates", templatesRouter);
 app.use("/resumes", resumesRouter);
 

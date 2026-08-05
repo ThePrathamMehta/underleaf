@@ -27,6 +27,10 @@ export type EditorAction =
   | { type: "removeItem"; sectionId: string; itemId: string }
   | { type: "addBullet"; sectionId: string; itemId: string }
   | { type: "removeBullet"; sectionId: string; itemId: string; index: number }
+  | { type: "addPage" }
+  | { type: "removePage"; pageIndex: number }
+  | { type: "movePage"; from: number; to: number }
+  | { type: "togglePageBreak"; sectionId: string }
   | { type: "commit" }
   | { type: "undo" }
   | { type: "redo" }
@@ -73,6 +77,42 @@ function mapSection(content: ResumeContent, sectionId: string, fn: (section: Sec
 /** Renumbers `order` to match array position after a move or insertion. */
 function renumber(sections: Section[]): Section[] {
   return sections.map((section, index) => ({ ...section, order: index }));
+}
+
+/**
+ * Groups sections (in `order` sequence) into pages by their `pageBreakBefore`
+ * markers. Includes hidden sections so a page operation moves them with their
+ * page; the renderer decides visibility separately.
+ */
+function groupIntoPages(sections: Section[]): Section[][] {
+  const ordered = [...sections].sort((a, b) => a.order - b.order);
+  if (ordered.length === 0) return [];
+
+  const pages: Section[][] = [[]];
+  ordered.forEach((section, i) => {
+    if (i > 0 && section.pageBreakBefore) pages.push([]);
+    pages[pages.length - 1]!.push(section);
+  });
+  return pages;
+}
+
+/**
+ * Flattens pages back to a section array, re-deriving `order` and the
+ * `pageBreakBefore` flags from page boundaries — the first section of every
+ * page after the first carries the break; everyone else clears it.
+ */
+function rebuildFromPages(pages: Section[][]): Section[] {
+  const result: Section[] = [];
+  pages.forEach((page, pageIndex) => {
+    page.forEach((section, indexInPage) => {
+      result.push({
+        ...section,
+        order: result.length,
+        pageBreakBefore: pageIndex > 0 && indexInPage === 0 ? true : undefined,
+      });
+    });
+  });
+  return result;
 }
 
 function reduceDoc(doc: EditorDocument, action: EditorAction): EditorDocument {
@@ -170,6 +210,43 @@ function reduceDoc(doc: EditorDocument, action: EditorAction): EditorDocument {
               : item,
           ),
         }) as Section),
+      };
+
+    case "addPage": {
+      // A new page needs a section to hold it (pages are runs of sections), so
+      // append a blank custom section that begins a fresh page.
+      const section = createEmptySection("custom", doc.content.sections.length);
+      section.pageBreakBefore = true;
+      return { ...doc, content: { ...doc.content, sections: [...doc.content.sections, section] } };
+    }
+
+    case "removePage": {
+      const pages = groupIntoPages(doc.content.sections);
+      if (action.pageIndex < 0 || action.pageIndex >= pages.length) return doc;
+      const removedIds = new Set(pages[action.pageIndex]!.map((s) => s.id));
+      const remaining = doc.content.sections.filter((s) => !removedIds.has(s.id));
+      return {
+        ...doc,
+        content: { ...doc.content, sections: rebuildFromPages(groupIntoPages(remaining)) },
+      };
+    }
+
+    case "movePage": {
+      const pages = groupIntoPages(doc.content.sections);
+      const { from, to } = action;
+      if (from === to || from < 0 || to < 0 || from >= pages.length || to >= pages.length) return doc;
+      const [moved] = pages.splice(from, 1);
+      pages.splice(to, 0, moved!);
+      return { ...doc, content: { ...doc.content, sections: rebuildFromPages(pages) } };
+    }
+
+    case "togglePageBreak":
+      return {
+        ...doc,
+        content: mapSection(doc.content, action.sectionId, (section) => ({
+          ...section,
+          pageBreakBefore: !section.pageBreakBefore,
+        })),
       };
 
     default:

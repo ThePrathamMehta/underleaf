@@ -10,8 +10,10 @@ import { useAuth } from "../../../lib/auth-context";
 import { editorReducer, initEditorState } from "../../../lib/editor-reducer";
 import { useAutosave } from "../../../lib/use-autosave";
 import { EditorToolbar } from "../../../components/editor/toolbar";
+import { SelectionToolbar } from "../../../components/editor/selection-toolbar";
 import { EditorCanvas } from "../../../components/editor/canvas";
 import { SectionPanel } from "../../../components/editor/section-panel";
+import { PageRail } from "../../../components/editor/page-rail";
 import { ButtonLink } from "../../../components/button";
 import { Logo } from "../../../components/logo";
 
@@ -134,6 +136,22 @@ export default function EditorPage({ params }: { params: Promise<{ resumeId: str
     }
   }
 
+  /**
+   * The toolbar's back-to-dashboard action. The debounced autosave may still
+   * have unsaved edits (isDirty) or a save in flight, so leaving needs a
+   * confirm rather than silently dropping them. browser-navigation still gets
+   * the beforeunload guard in useAutosave; this covers in-app navigation.
+   */
+  const handleBackToDashboard = useCallback(() => {
+    if (isDirty || status === "saving" || status === "pending") {
+      const leave = window.confirm(
+        "You have unsaved changes. Leave without saving? We'll keep saving in the background, but the latest edits may not have finished.",
+      );
+      if (!leave) return;
+    }
+    router.push("/dashboard");
+  }, [isDirty, status, router]);
+
   async function handleTemplateChange(slug: string) {
     const template = templates.find((t) => t.slug === slug);
     if (!template || slug === templateSlug) return;
@@ -199,15 +217,23 @@ export default function EditorPage({ params }: { params: Promise<{ resumeId: str
         onZoomChange={(next) => setZoom(Math.min(2, Math.max(0.5, Number(next.toFixed(2)))))}
         onTemplateChange={(slug) => void handleTemplateChange(slug)}
         onExport={() => void handleExport()}
+        onBack={handleBackToDashboard}
+        onAddPage={() => dispatch({ type: "addPage" })}
       />
 
       {saveError && (
         <div role="alert" className="border-b border-danger/20 bg-danger-wash px-4 py-2 text-center text-sm text-danger">
-          {saveError} Your changes are still here — we'll keep retrying as you edit.
+          {saveError} Your changes are still here &mdash; we&rsquo;ll keep retrying as you edit.
         </div>
       )}
 
       <div className="flex min-h-0 flex-1">
+        <PageRail
+          content={doc.content}
+          onMovePage={(from, to) => dispatch({ type: "movePage", from, to })}
+          onRemovePage={(pageIndex) => dispatch({ type: "removePage", pageIndex })}
+        />
+
         <EditorCanvas
           templateSlug={templateSlug}
           content={doc.content}
@@ -221,6 +247,11 @@ export default function EditorPage({ params }: { params: Promise<{ resumeId: str
           onRemoveItem={(sectionId, itemId) => dispatch({ type: "removeItem", sectionId, itemId })}
           onAddBullet={(sectionId, itemId) => dispatch({ type: "addBullet", sectionId, itemId })}
         />
+
+        {/* Formats whatever is selected inside the canvas; the header toolbar
+            above keeps the document-wide equivalents. Portals to the body, so
+            it's mounted here rather than nested in the canvas's scroll box. */}
+        <SelectionToolbar theme={doc.theme} />
 
         <SectionPanel
           sections={doc.content.sections}
