@@ -75,7 +75,7 @@ export default function DashboardPage() {
             </h1>
           </div>
 
-          <ButtonLink href="/templates" size="md">
+          <ButtonLink href="/start" size="md">
             New resume
           </ButtonLink>
         </header>

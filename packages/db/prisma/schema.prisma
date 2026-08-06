@@ -39,9 +39,47 @@ model Template {
   /// Sample content shown in the gallery and copied into new resumes.
   sampleContent   Json
 
-  resumes Resume[]
+  resumes     Resume[]
+  professions TemplateProfession[]
 
   @@index([category])
+}
+
+/// Who a template is *for*, as opposed to what it looks like.
+///
+/// Deliberately orthogonal to `Template.category`: category is a style
+/// descriptor (Minimal, Creative), profession is an audience descriptor. A
+/// Lawyer and an Academic may both be well served by the same conservative
+/// serif layout, so collapsing the two would lose one axis or the other.
+model Profession {
+  id          String @id @default(cuid())
+  name        String
+  slug        String @unique
+  description String
+  /// Key into the icon set in @repo/ui — not an emoji, per the v1 design rules.
+  iconKey     String
+  /// Display order in the gallery's profession row.
+  sortOrder   Int    @default(0)
+
+  templates TemplateProfession[]
+
+  @@index([sortOrder])
+}
+
+/// Curated many-to-many: a template can be among the best picks for several
+/// professions, which is what makes 5–7 per profession reachable without an
+/// equal number of bespoke layouts.
+model TemplateProfession {
+  templateId   String
+  professionId String
+  /// Order within this profession's list; 0 is the strongest recommendation.
+  rank         Int    @default(0)
+
+  template   Template   @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  profession Profession @relation(fields: [professionId], references: [id], onDelete: Cascade)
+
+  @@id([templateId, professionId])
+  @@index([professionId, rank])
 }
 
 model Resume {

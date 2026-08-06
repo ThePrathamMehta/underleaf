@@ -28,6 +28,27 @@ const TEMPLATES: Record<TemplateSlug, (props: { content: ResumeContent }) => Rea
   creative: CreativeTemplate,
 };
 
+/**
+ * Separates a variant slug from the structural layout it restyles, as in
+ * `classic--garamond`.
+ *
+ * Profession curation needs 5–7 templates each, which is more gallery items
+ * than there are distinct layouts. A variant is a real `Template` row with its
+ * own theme, name and description — but it reuses one of the five components
+ * above, because what differs is the theme, not the structure.
+ *
+ * Resolving by convention rather than registering each variant keeps this file
+ * a list of layouts that actually exist. Seeding a new variant needs no change
+ * here, and a variant of a layout that was removed still degrades to the same
+ * default an unknown slug always has.
+ */
+const VARIANT_SEPARATOR = "--";
+
+/** The structural layout a slug renders as, variant or not. */
+export function baseTemplateSlug(slug: string): string {
+  return slug.split(VARIANT_SEPARATOR)[0] ?? slug;
+}
+
 export type ResumeDocumentProps = {
   templateSlug: string;
   content: ResumeContent;
@@ -55,7 +76,7 @@ export type ResumeDocumentProps = {
  * before. Continuation pages suppress the repeated header via `data-page-index`.
  */
 export function ResumeDocument({ templateSlug, content, theme, fontFaces }: ResumeDocumentProps) {
-  const Template = TEMPLATES[templateSlug as TemplateSlug] ?? JakesTemplate;
+  const Template = TEMPLATES[baseTemplateSlug(templateSlug) as TemplateSlug] ?? JakesTemplate;
   const css = themeToCss(theme, { fontFaces });
   const pages = splitSectionsIntoPages(content);
 

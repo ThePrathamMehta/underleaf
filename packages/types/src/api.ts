@@ -43,6 +43,15 @@ export type TemplateCategory = z.infer<typeof templateCategorySchema>;
 
 export const templateListQuerySchema = z.object({
   category: templateCategorySchema.optional(),
+  /**
+   * Profession slug. Composes with `category` as an AND — the two describe
+   * different axes (who it's for vs. what it looks like), so narrowing by both
+   * is meaningful rather than contradictory.
+   *
+   * Free-form rather than an enum: professions are seeded rows the user can
+   * extend, unlike categories, which the templates themselves declare.
+   */
+  profession: z.string().min(1).max(80).optional(),
 });
 
 export const templateSchema = z.object({
@@ -59,6 +68,20 @@ export const templateSchema = z.object({
 });
 
 export type TemplateDto = z.infer<typeof templateSchema>;
+
+// --- Professions ---
+
+export const professionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  description: z.string(),
+  /** Key into the icon set in @repo/ui. Never an emoji, per the v1 design rules. */
+  iconKey: z.string(),
+  sortOrder: z.number(),
+});
+
+export type ProfessionDto = z.infer<typeof professionSchema>;
 
 // --- Resumes ---
 

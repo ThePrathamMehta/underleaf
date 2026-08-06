@@ -17,4 +17,4 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 export { Prisma } from "@prisma/client";
-export type { User, Template, Resume } from "@prisma/client";
+export type { User, Template, Resume, Profession, TemplateProfession } from "@prisma/client";

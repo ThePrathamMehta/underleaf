@@ -1,6 +1,13 @@
 {
   "extends": "@repo/typescript-config/base.json",
   "compilerOptions": {
+    // Same reason as packages/ui: this package resolves @repo/types through its
+    // extensionless exports map, which the base config's NodeNext resolution
+    // can't follow — it reported every import from @repo/types as a missing
+    // export while `bun run src/seed.ts` executed the same files fine. Bun is
+    // what actually runs this package, and it resolves like a bundler.
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "noEmit": true
   },
   "include": ["src"],

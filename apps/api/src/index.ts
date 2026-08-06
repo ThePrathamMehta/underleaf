@@ -6,6 +6,7 @@ import { config } from "./config.js";
 import { errorHandler } from "./middleware/errors.js";
 import { authRouter } from "./routes/auth.js";
 import { templatesRouter } from "./routes/templates.js";
+import { professionsRouter } from "./routes/professions.js";
 import { resumesRouter } from "./routes/resumes.js";
 import { closeBrowser } from "./services/pdf.js";
 
@@ -39,6 +40,7 @@ if (config.oauthEnabled) {
   app.use("/auth", createOAuthRouter());
 }
 app.use("/templates", templatesRouter);
+app.use("/professions", professionsRouter);
 app.use("/resumes", resumesRouter);
 
 app.use((_req, res) => {

@@ -1,4 +1,5 @@
 import type {
+  ProfessionDto,
   PublicUser,
   ResumeWithTemplateDto,
   TemplateDto,
@@ -71,9 +72,16 @@ export const api = {
     return request<{ user: PublicUser }>("/auth/me", { signal });
   },
 
-  templates(category?: string) {
-    const query = category ? `?category=${encodeURIComponent(category)}` : "";
-    return request<{ templates: TemplateDto[] }>(`/templates${query}`);
+  templates(filters?: { category?: string; profession?: string }) {
+    const params = new URLSearchParams();
+    if (filters?.category) params.set("category", filters.category);
+    if (filters?.profession) params.set("profession", filters.profession);
+    const query = params.toString();
+    return request<{ templates: TemplateDto[] }>(`/templates${query ? `?${query}` : ""}`);
+  },
+
+  professions() {
+    return request<{ professions: ProfessionDto[] }>("/professions");
   },
 
   resumes() {

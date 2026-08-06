@@ -1,43 +1,120 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import type { TemplateDto } from "@repo/types";
+import type { ProfessionDto, TemplateDto } from "@repo/types";
+import { ProfessionIcon } from "@repo/ui/profession-icon";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth-context";
 import { Button } from "../../components/button";
 import { SiteHeader } from "../../components/site-header";
 import { ResumeThumbnail } from "../../components/resume-thumbnail";
 
+/**
+ * `useSearchParams` opts the tree into client-side rendering, so the boundary
+ * keeps that scoped to the gallery instead of the whole route. The profession
+ * arrives as `?profession=` from the picker step, which is what lets that step
+ * hand off a pre-filtered gallery.
+ */
 export default function TemplatesPage() {
+  return (
+    <Suspense
+      fallback={
+        <>
+          <SiteHeader />
+          <main className="mx-auto max-w-6xl px-6 py-14 lg:py-16">
+            <SkeletonGrid />
+          </main>
+        </>
+      }
+    >
+      <TemplatesGallery />
+    </Suspense>
+  );
+}
+
+function TemplatesGallery() {
   const router = useRouter();
   const { user } = useAuth();
+  const searchParams = useSearchParams();
 
   const [templates, setTemplates] = useState<TemplateDto[] | null>(null);
+  const [professions, setProfessions] = useState<ProfessionDto[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [profession, setProfession] = useState<string | null>(
+    () => searchParams.get("profession"),
+  );
   const [category, setCategory] = useState<string | null>(null);
   const [creatingSlug, setCreatingSlug] = useState<string | null>(null);
   const [preview, setPreview] = useState<TemplateDto | null>(null);
 
+  // The profession row is an enhancement, not a dependency — if this fails the
+  // gallery still works exactly as it did before professions existed.
   useEffect(() => {
     api
-      .templates()
-      .then(({ templates: list }) => setTemplates(list))
-      .catch((caught) =>
-        setError(caught instanceof ApiError ? caught.message : "Could not load templates."),
-      );
+      .professions()
+      .then(({ professions: list }) => setProfessions(list))
+      .catch(() => setProfessions([]));
   }, []);
 
+  /**
+   * Refetched per profession rather than filtered on the client, because the
+   * curated `rank` only exists server-side — filtering a cached list here would
+   * silently fall back to alphabetical and lose the ordering the whole feature
+   * is for.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    setTemplates(null);
+    setError(null);
+
+    api
+      .templates({ profession: profession ?? undefined })
+      .then(({ templates: list }) => {
+        if (!cancelled) setTemplates(list);
+      })
+      .catch((caught) => {
+        if (!cancelled) {
+          setError(caught instanceof ApiError ? caught.message : "Could not load templates.");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profession]);
+
+  // Only the categories actually present in the current profession's picks, so
+  // the two rows can't combine into an empty grid.
   const categories = useMemo(() => {
     if (!templates) return [];
     return [...new Set(templates.map((t) => t.category))].sort();
   }, [templates]);
 
+  // Category narrows within the profession's list — the AND half of the filter.
+  // Kept client-side so it stays instant, and because filtering a ranked list
+  // preserves that rank for free.
   const visible = useMemo(() => {
     if (!templates) return [];
     return category ? templates.filter((t) => t.category === category) : templates;
   }, [templates, category]);
+
+  // A category that the newly-chosen profession has none of would read as "no
+  // results" with no obvious cause; drop it instead.
+  useEffect(() => {
+    if (category && categories.length > 0 && !categories.includes(category)) setCategory(null);
+  }, [categories, category]);
+
+  function chooseProfession(slug: string | null) {
+    setProfession(slug);
+    // Keeps the filter in the URL so it survives a refresh and can be shared.
+    router.replace(slug ? `/templates?profession=${encodeURIComponent(slug)}` : "/templates", {
+      scroll: false,
+    });
+  }
+
+  const activeProfession = professions.find((p) => p.slug === profession) ?? null;
 
   // Not `useTemplate`: a use-prefixed name reads as a hook, and the rules-of-
   // hooks lint rightly objected to it being called from an onClick.
@@ -89,7 +166,7 @@ export default function TemplatesPage() {
             Templates
           </p>
           <h1 className="font-display text-[clamp(2.25rem,5vw,3.25rem)] leading-[1.05] tracking-tightest text-balance">
-            Five formats worth starting from.
+            Formats worth starting from.
           </h1>
           <p className="mt-5 leading-relaxed text-ink-muted text-pretty">
             Each is a rebuild of a resume layout that hiring teams already read
@@ -98,17 +175,53 @@ export default function TemplatesPage() {
           </p>
         </header>
 
-        {categories.length > 0 && (
-          <div className="mt-10 flex flex-wrap gap-2">
-            <Chip active={category === null} onClick={() => setCategory(null)}>
-              All
-            </Chip>
-            {categories.map((c) => (
-              <Chip key={c} active={category === c} onClick={() => setCategory(c)}>
-                {c}
+        {/* Two filter rows, labelled, because they narrow on different axes and
+            an unlabelled pair of chip rows reads as one control that wrapped. */}
+        {professions.length > 0 && (
+          <div className="mt-10">
+            <p className="font-mono text-[0.625rem] uppercase tracking-[0.14em] text-ink-faint">
+              Built for
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Chip active={profession === null} onClick={() => chooseProfession(null)}>
+                All templates
               </Chip>
-            ))}
+              {professions.map((p) => (
+                <Chip
+                  key={p.id}
+                  active={profession === p.slug}
+                  onClick={() => chooseProfession(p.slug)}
+                  icon={<ProfessionIcon iconKey={p.iconKey} size={15} />}
+                >
+                  {p.name}
+                </Chip>
+              ))}
+            </div>
           </div>
+        )}
+
+        {categories.length > 0 && (
+          <div className="mt-6">
+            <p className="font-mono text-[0.625rem] uppercase tracking-[0.14em] text-ink-faint">
+              Style
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Chip active={category === null} onClick={() => setCategory(null)}>
+                Any
+              </Chip>
+              {categories.map((c) => (
+                <Chip key={c} active={category === c} onClick={() => setCategory(c)}>
+                  {c}
+                </Chip>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeProfession && (
+          <p className="mt-6 max-w-[52ch] text-sm leading-relaxed text-ink-muted text-pretty">
+            {activeProfession.description}
+          </p>
         )}
 
         {error && (
@@ -123,9 +236,10 @@ export default function TemplatesPage() {
         {templates === null && !error && <SkeletonGrid />}
 
         <motion.div layout className="mt-10 grid gap-x-7 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
-          {/* Pinned first: a blank start. Only when unfiltered, so it can't look
-              like a stray result under a category. */}
-          {templates !== null && category === null && (
+          {/* Pinned first: a blank start. Only when unfiltered — under a
+              profession the grid is a ranked list, and a pinned card would push
+              the strongest recommendation out of first place. */}
+          {templates !== null && category === null && profession === null && (
             <motion.article
               layout
               initial={{ opacity: 0, y: 18 }}
@@ -215,7 +329,22 @@ export default function TemplatesPage() {
         </motion.div>
 
         {templates !== null && visible.length === 0 && (
-          <p className="mt-16 text-center text-ink-muted">No templates in that category yet.</p>
+          <div className="mt-16 text-center">
+            <p className="text-ink-muted">
+              {profession && category
+                ? `No ${category.toLowerCase()} templates for ${activeProfession?.name ?? "that profession"} yet.`
+                : "No templates match that filter yet."}
+            </p>
+            <button
+              onClick={() => {
+                setCategory(null);
+                chooseProfession(null);
+              }}
+              className="mt-3 text-sm text-accent underline underline-offset-4 hover:text-accent-hover"
+            >
+              Browse all templates
+            </button>
+          </div>
         )}
       </main>
 
@@ -327,22 +456,25 @@ function TemplatePreview({
 function Chip({
   active,
   onClick,
+  icon,
   children,
 }: {
   active: boolean;
   onClick: () => void;
+  icon?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <button
       onClick={onClick}
       aria-pressed={active}
-      className={`h-9 rounded-full px-4 text-sm transition-all duration-200 ${
+      className={`inline-flex h-9 items-center gap-2 rounded-full px-4 text-sm transition-all duration-200 ${
         active
           ? "bg-ink text-paper"
           : "bg-paper-raised text-ink-muted ring-1 ring-inset ring-rule hover:text-ink hover:ring-rule-strong"
       }`}
     >
+      {icon && <span className={active ? "text-paper/70" : "text-ink-faint"}>{icon}</span>}
       {children}
     </button>
   );

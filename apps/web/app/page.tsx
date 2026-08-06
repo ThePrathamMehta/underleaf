@@ -58,14 +58,14 @@ export default function LandingPage() {
                 transition={{ duration: 0.6, delay: 0.22, ease: [0.22, 1, 0.36, 1] }}
                 className="mt-10 flex flex-wrap items-center gap-3"
               >
-                <ButtonLink href="/templates" size="lg">
+                <ButtonLink href="/start" size="lg">
                   Create your resume
                 </ButtonLink>
                 <Link
                   href="/templates"
                   className="group inline-flex h-12 items-center gap-1.5 px-2 text-sm text-ink-muted transition-colors hover:text-ink"
                 >
-                  Browse the five templates
+                  Browse all templates
                   <span className="transition-transform duration-200 group-hover:translate-x-0.5">
                     →
                   </span>
@@ -255,7 +255,7 @@ export default function LandingPage() {
                 Start from a template, keep what fits, cut what doesn&rsquo;t.
               </p>
             </div>
-            <ButtonLink href="/templates" size="lg" className="shrink-0">
+            <ButtonLink href="/start" size="lg" className="shrink-0">
               Create your resume
             </ButtonLink>
           </div>

@@ -1,7 +1,8 @@
-import type { Resume, Template } from "@repo/db";
+import type { Profession, Resume, Template } from "@repo/db";
 import {
   resumeContentSchema,
   themeSchema,
+  type ProfessionDto,
   type ResumeContent,
   type ResumeDto,
   type TemplateDto,
@@ -32,6 +33,17 @@ export function serializeTemplate(template: Template): TemplateDto {
     isPremium: template.isPremium,
     defaultTheme: parseTheme(template.defaultTheme),
     sampleContent: parseContent(template.sampleContent),
+  };
+}
+
+export function serializeProfession(profession: Profession): ProfessionDto {
+  return {
+    id: profession.id,
+    name: profession.name,
+    slug: profession.slug,
+    description: profession.description,
+    iconKey: profession.iconKey,
+    sortOrder: profession.sortOrder,
   };
 }
 
