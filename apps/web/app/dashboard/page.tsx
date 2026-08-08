@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import type { ResumeWithTemplateDto } from "@repo/types";
+import type { PdfDocumentSummaryDto, ResumeWithTemplateDto } from "@repo/types";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth-context";
 import { Button, ButtonLink } from "../../components/button";
@@ -16,9 +16,12 @@ export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth();
 
   const [resumes, setResumes] = useState<ResumeWithTemplateDto[] | null>(null);
+  const [pdfs, setPdfs] = useState<PdfDocumentSummaryDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!authLoading && !user) router.replace("/login?next=/dashboard");
@@ -33,7 +36,45 @@ export default function DashboardPage() {
       .catch((caught) =>
         setError(caught instanceof ApiError ? caught.message : "Could not load your resumes."),
       );
+
+    // Loaded separately so a PDF-side failure never blanks the resume grid.
+    api
+      .pdfs()
+      .then(({ documents }) => setPdfs(documents))
+      .catch(() => setPdfs([]));
   }, [user]);
+
+  async function uploadPdf(file: File) {
+    setError(null);
+    setUploading(true);
+
+    try {
+      const { document } = await api.uploadPdf(file);
+      // Straight into the editor: the upload already parsed the whole document,
+      // so there's nothing else the user would do from here.
+      router.push(`/pdf-editor/${document.id}`);
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError
+          ? caught.message
+          : "Could not upload that PDF. Please try again.",
+      );
+      setUploading(false);
+    }
+  }
+
+  async function removePdf(id: string) {
+    setBusyId(id);
+    try {
+      await api.deletePdf(id);
+      setPdfs((current) => current?.filter((p) => p.id !== id) ?? null);
+      setConfirmDeleteId(null);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Could not delete that PDF.");
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   async function duplicate(id: string) {
     setBusyId(id);
@@ -75,9 +116,34 @@ export default function DashboardPage() {
             </h1>
           </div>
 
-          <ButtonLink href="/start" size="md">
-            New resume
-          </ButtonLink>
+          <div className="flex items-center gap-2.5">
+            {/* Hidden input + button, rather than a styled file input: file
+                inputs can't be restyled consistently across browsers. */}
+            <input
+              ref={uploadInputRef}
+              type="file"
+              accept="application/pdf,.pdf"
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                // Reset first so re-picking the same file still fires onChange.
+                event.target.value = "";
+                if (file) void uploadPdf(file);
+              }}
+            />
+            <Button
+              variant="secondary"
+              size="md"
+              disabled={uploading}
+              onClick={() => uploadInputRef.current?.click()}
+            >
+              {uploading ? "Uploading…" : "Upload a PDF"}
+            </Button>
+
+            <ButtonLink href="/start" size="md">
+              New resume
+            </ButtonLink>
+          </div>
         </header>
 
         {error && (
@@ -192,6 +258,85 @@ export default function DashboardPage() {
             </AnimatePresence>
           </motion.div>
         )}
+        {pdfs !== null && pdfs.length > 0 && (
+          <section className="mt-20">
+            <div className="flex items-end justify-between gap-4 border-t border-rule pt-10">
+              <div>
+                <h2 className="font-display text-2xl tracking-tight">Uploaded PDFs</h2>
+                <p className="mt-1 text-[0.9375rem] text-ink-muted">
+                  Edit text in place — original layout and fonts preserved.
+                </p>
+              </div>
+            </div>
+
+            <motion.ul layout className="mt-6 divide-y divide-rule border-y border-rule">
+              <AnimatePresence mode="popLayout">
+                {pdfs.map((pdf) => (
+                  <motion.li
+                    key={pdf.id}
+                    layout
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0, scale: 0.98 }}
+                    transition={{ duration: 0.25 }}
+                    className="group relative flex items-center gap-4 py-3.5"
+                  >
+                    <PdfFileIcon />
+
+                    <Link href={`/pdf-editor/${pdf.id}`} className="min-w-0 flex-1">
+                      <span className="block truncate font-medium tracking-tight transition-colors group-hover:text-accent">
+                        {pdf.title}
+                      </span>
+                      <span className="mt-0.5 block text-[0.8125rem] text-ink-faint">
+                        {pdf.pageCount} {pdf.pageCount === 1 ? "page" : "pages"} · edited{" "}
+                        {relativeTime(pdf.updatedAt)}
+                      </span>
+                    </Link>
+
+                    <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
+                      <RowAction
+                        label="Delete"
+                        danger
+                        disabled={busyId === pdf.id}
+                        onClick={() => setConfirmDeleteId(pdf.id)}
+                      >
+                        <TrashIcon />
+                      </RowAction>
+                    </div>
+
+                    <AnimatePresence>
+                      {confirmDeleteId === pdf.id && (
+                        <motion.div
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ duration: 0.15 }}
+                          className="absolute inset-0 z-10 flex items-center justify-end gap-2 bg-paper/95 backdrop-blur-sm"
+                        >
+                          <p className="mr-auto truncate text-sm text-ink-muted">
+                            Delete <span className="text-ink">{pdf.title}</span>? This can&rsquo;t be
+                            undone.
+                          </p>
+                          <Button variant="secondary" size="sm" onClick={() => setConfirmDeleteId(null)}>
+                            Cancel
+                          </Button>
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            disabled={busyId === pdf.id}
+                            onClick={() => void removePdf(pdf.id)}
+                          >
+                            {busyId === pdf.id ? "Deleting…" : "Delete"}
+                          </Button>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.li>
+                ))}
+              </AnimatePresence>
+            </motion.ul>
+          </section>
+        )}
       </main>
     </>
   );
@@ -244,6 +389,17 @@ function EmptyState() {
       <ButtonLink href="/templates" size="md">
         Browse templates
       </ButtonLink>
+
+      <p className="-mt-2 text-[0.8125rem] text-ink-faint">
+        Or{" "}
+        <Link
+          href="/pdf"
+          className="text-accent underline decoration-accent-ring underline-offset-[3px] hover:decoration-accent"
+        >
+          edit a PDF you already have
+        </Link>
+        .
+      </p>
     </div>
   );
 }
@@ -309,6 +465,26 @@ function TrashIcon() {
   return (
     <svg {...svg}>
       <path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" />
+    </svg>
+  );
+}
+
+function PdfFileIcon() {
+  return (
+    <svg
+      width={18}
+      height={18}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="shrink-0 text-ink-muted"
+    >
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+      <path d="M9 13h6M9 17h4" />
     </svg>
   );
 }

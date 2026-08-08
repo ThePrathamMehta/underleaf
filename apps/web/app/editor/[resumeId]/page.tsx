@@ -11,7 +11,7 @@ import { editorReducer, initEditorState } from "../../../lib/editor-reducer";
 import { useAutosave } from "../../../lib/use-autosave";
 import { EditorToolbar } from "../../../components/editor/toolbar";
 import { SelectionToolbar } from "../../../components/editor/selection-toolbar";
-import { EditorCanvas } from "../../../components/editor/canvas";
+import { EditorCanvas, type CanvasHandle } from "../../../components/editor/canvas";
 import { SectionPanel } from "../../../components/editor/section-panel";
 import { PageRail } from "../../../components/editor/page-rail";
 import { ButtonLink } from "../../../components/button";
@@ -46,6 +46,11 @@ export default function EditorPage({ params }: { params: Promise<{ resumeId: str
   const [zoom, setZoom] = useState(1);
   const [focusedSectionId, setFocusedSectionId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  // Sheet count and current sheet both come from the canvas: they're properties
+  // of the measured layout, which only the canvas can compute.
+  const [pageCount, setPageCount] = useState(1);
+  const [activePage, setActivePage] = useState(0);
+  const canvas = useRef<CanvasHandle | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) router.replace(`/login?next=${encodeURIComponent(`/editor/${resumeId}`)}`);
@@ -171,9 +176,7 @@ export default function EditorPage({ params }: { params: Promise<{ resumeId: str
 
   const scrollToSection = useCallback((sectionId: string) => {
     setFocusedSectionId(sectionId);
-    document
-      .querySelector(`[data-section-id="${sectionId}"]`)
-      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    canvas.current?.scrollToSection(sectionId);
   }, []);
 
   const templateOptions = useMemo(
@@ -229,9 +232,9 @@ export default function EditorPage({ params }: { params: Promise<{ resumeId: str
 
       <div className="flex min-h-0 flex-1">
         <PageRail
-          content={doc.content}
-          onMovePage={(from, to) => dispatch({ type: "movePage", from, to })}
-          onRemovePage={(pageIndex) => dispatch({ type: "removePage", pageIndex })}
+          pageCount={pageCount}
+          activePage={activePage}
+          onSelect={(pageIndex) => canvas.current?.scrollToPage(pageIndex)}
         />
 
         <EditorCanvas
@@ -240,12 +243,15 @@ export default function EditorPage({ params }: { params: Promise<{ resumeId: str
           theme={doc.theme}
           zoom={zoom}
           focusedSectionId={focusedSectionId}
+          handleRef={canvas}
           onFieldChange={onFieldChange}
           onFieldCommit={onFieldCommit}
           onFocusSection={setFocusedSectionId}
           onAddItem={(sectionId) => dispatch({ type: "addItem", sectionId })}
           onRemoveItem={(sectionId, itemId) => dispatch({ type: "removeItem", sectionId, itemId })}
           onAddBullet={(sectionId, itemId) => dispatch({ type: "addBullet", sectionId, itemId })}
+          onPagesChange={setPageCount}
+          onActivePageChange={setActivePage}
         />
 
         {/* Formats whatever is selected inside the canvas; the header toolbar

@@ -10,16 +10,16 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
+    "db:deploy:neon": "bun run scripts/migrate-ws.ts",
     "db:push": "prisma db push",
     "db:seed": "bun run src/seed.ts",
     "db:studio": "prisma studio",
     "lint": "eslint . --max-warnings 0",
     "check-types": "tsc --noEmit"
   },
-  "prisma": {
-    "schema": "prisma/schema.prisma"
-  },
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "@prisma/adapter-neon": "6.19.3",
     "@prisma/client": "^6.2.1",
     "@repo/types": "*"
   },

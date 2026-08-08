@@ -127,7 +127,12 @@ function TemplatesGallery() {
 
     setCreatingSlug(template.slug);
     try {
-      const { resume } = await api.createResume({ templateId: template.id });
+      // Pass the active profession so the resume opens on the sample the card
+      // was previewing, not the template's general one.
+      const { resume } = await api.createResume({
+        templateId: template.id,
+        ...(profession ? { profession } : {}),
+      });
       router.push(`/editor/${resume.id}`);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Could not create the resume.");

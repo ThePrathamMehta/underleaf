@@ -18,19 +18,26 @@ export function SiteHeader() {
         <Logo />
 
         <nav className="flex items-center gap-1">
-          <NavLink href="/templates" active={pathname === "/templates"}>
+          <NavLink href="/templates" active={pathname === '/templates'}>
             Templates
           </NavLink>
 
-          <ThemeToggle className="ml-1" />
+          {/* PDF editing lived only behind a dashboard button, which hid it from
+              everyone who hadn't signed in yet. */}
+          <NavLink href="/pdf" active={pathname === '/pdf'}>
+            Edit a PDF
+          </NavLink>
 
           {loading ? (
             // Reserve the space so the header doesn't jolt when auth resolves.
-            <div className="ml-2 h-10 w-[8.5rem]" aria-hidden />
+            <div className="ml-2 h-10 w-[13rem]" aria-hidden />
           ) : user ? (
             <>
-              <NavLink href="/dashboard" active={pathname === "/dashboard"}>
+              <NavLink href="/dashboard" active={pathname === '/dashboard'}>
                 My resumes
+              </NavLink>
+              <NavLink href="/settings" active={pathname === '/settings'}>
+                Settings
               </NavLink>
               <Button variant="ghost" size="md" className="ml-1" onClick={() => void logout()}>
                 Sign out
@@ -38,7 +45,7 @@ export function SiteHeader() {
             </>
           ) : (
             <>
-              <NavLink href="/login" active={pathname === "/login"}>
+              <NavLink href="/login" active={pathname === '/login'}>
                 Sign in
               </NavLink>
               <ButtonLink href="/signup" size="md" className="ml-2">
@@ -46,6 +53,7 @@ export function SiteHeader() {
               </ButtonLink>
             </>
           )}
+          <ThemeToggle className="ml-1" />
         </nav>
       </div>
     </header>

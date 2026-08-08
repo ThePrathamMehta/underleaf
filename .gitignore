@@ -36,3 +36,6 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+# Local blob storage (uploaded PDFs and rendered page images)
+.storage

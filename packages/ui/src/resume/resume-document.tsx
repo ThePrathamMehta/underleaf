@@ -2,7 +2,9 @@
 
 import type { ResumeContent, Theme } from "@repo/types";
 import { splitSectionsIntoPages } from "@repo/types";
-import { themeToCss } from "./resume-styles";
+import { themeToCss, themeToCssVars } from "./resume-styles";
+import { PageSlicesProvider } from "./primitives";
+import type { PageLayout, SectionSlice } from "./paginate";
 import { JakesTemplate } from "./templates/jakes";
 import { DeedyTemplate } from "./templates/deedy";
 import { ModernMinimalTemplate } from "./templates/modern-minimal";
@@ -59,6 +61,16 @@ export type ResumeDocumentProps = {
    * cannot resolve there. In the browser, `next/font` has already loaded them.
    */
   fontFaces?: string;
+  /**
+   * Measured pagination: one entry per sheet, each listing the slice of every
+   * section that sheet shows.
+   *
+   * Omitted by callers that render the whole document in one flow — the
+   * thumbnails, the template gallery, and the measuring pass that produces this
+   * very value. Without it the renderer falls back to manual `pageBreakBefore`
+   * splitting, which is what existed before content-driven pagination.
+   */
+  layout?: PageLayout[];
 };
 
 /**
@@ -69,25 +81,41 @@ export type ResumeDocumentProps = {
  * It carries its own stylesheet so it is self-contained: hand it a `(content,
  * theme)` pair and it renders correctly in any host page.
  *
- * Multi-page: sections are grouped into pages by `pageBreakBefore` markers, and
- * each page is rendered as its own `.rd-page` sheet. The template renders once
- * per page with only that page's sections marked visible — so templates need no
- * page awareness, and a resume with no breaks renders as one page exactly as
- * before. Continuation pages suppress the repeated header via `data-page-index`.
+ * Multi-page: a sheet is a fixed physical size, so content that outgrows one
+ * continues on the next. Where those breaks fall is decided by `packBlocks`
+ * from measured heights and arrives here as `layout`; each entry becomes its own
+ * `.rd-page`. The template renders once per sheet with only that sheet's
+ * sections marked visible and its slices in context — so templates need no page
+ * awareness at all. Continuation sheets suppress the repeated name/contact
+ * header via `data-page-index`, but do re-print section headings.
+ *
+ * With no `layout`, sections are grouped by `pageBreakBefore` alone, which is
+ * how the thumbnails and the measuring pass itself render.
  */
-export function ResumeDocument({ templateSlug, content, theme, fontFaces }: ResumeDocumentProps) {
+export function ResumeDocument({ templateSlug, content, theme, fontFaces, layout }: ResumeDocumentProps) {
   const Template = TEMPLATES[baseTemplateSlug(templateSlug) as TemplateSlug] ?? JakesTemplate;
   const css = themeToCss(theme, { fontFaces });
-  const pages = splitSectionsIntoPages(content);
+
+  // Either source produces the same thing: for each sheet, which sections it
+  // shows and — when measured — how much of each.
+  const sheets: { ids: Set<string>; slices: ReadonlyMap<string, SectionSlice> | null }[] =
+    layout && layout.length > 0
+      ? layout.map((page) => ({
+          ids: new Set(page.map((slice) => slice.sectionId)),
+          slices: new Map(page.map((slice) => [slice.sectionId, slice])),
+        }))
+      : splitSectionsIntoPages(content).map((ids) => ({ ids: new Set(ids), slices: null }));
 
   return (
-    <div className="rd-root">
+    // The theme rides on this element, not in the stylesheet: `.rd-root` is a
+    // class, so several documents on one page (the gallery renders six) would
+    // otherwise each overwrite the others' page size, fonts and type scale.
+    <div className="rd-root" style={themeToCssVars(theme) as React.CSSProperties}>
       <style dangerouslySetInnerHTML={{ __html: css }} />
-      {pages.map((sectionIds, pageIndex) => {
-        // Same content shape, but only this page's sections are visible. The
-        // template's own `visible` filter then renders exactly this page, while
+      {sheets.map(({ ids, slices }, pageIndex) => {
+        // Same content shape, but only this sheet's sections are visible. The
+        // template's own `visible` filter then renders exactly this sheet, while
         // section indices (used by edit paths) stay pointing at the real array.
-        const ids = new Set(sectionIds);
         const pageContent: ResumeContent = {
           ...content,
           sections: content.sections.map((section) => ({
@@ -103,7 +131,9 @@ export function ResumeDocument({ templateSlug, content, theme, fontFaces }: Resu
             data-page-size={theme.pageSize}
             data-page-index={pageIndex}
           >
-            <Template content={pageContent} />
+            <PageSlicesProvider value={slices}>
+              <Template content={pageContent} />
+            </PageSlicesProvider>
           </div>
         );
       })}

@@ -8,6 +8,7 @@ import { authRouter } from "./routes/auth.js";
 import { templatesRouter } from "./routes/templates.js";
 import { professionsRouter } from "./routes/professions.js";
 import { resumesRouter } from "./routes/resumes.js";
+import { pdfsRouter } from "./routes/pdfs.js";
 import { closeBrowser } from "./services/pdf.js";
 
 const app = express();
@@ -42,6 +43,7 @@ if (config.oauthEnabled) {
 app.use("/templates", templatesRouter);
 app.use("/professions", professionsRouter);
 app.use("/resumes", resumesRouter);
+app.use("/pdfs", pdfsRouter);
 
 app.use((_req, res) => {
   res.status(404).json({ error: "Not found" });

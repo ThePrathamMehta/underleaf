@@ -93,7 +93,7 @@ export default function LandingPage() {
         <section className="border-b border-rule bg-paper-raised">
           <div className="mx-auto grid max-w-6xl grid-cols-2 gap-px bg-rule px-6 sm:grid-cols-4">
             {[
-              { figure: 'Five', label: 'typeset templates' },
+              { figure: 'Seventeen', label: 'typeset templates' },
               { figure: '1:1', label: 'screen to PDF' },
               { figure: 'Zero', label: 'LaTeX to learn' },
               { figure: '~20 min', label: 'to a finished draft' },
@@ -149,7 +149,7 @@ export default function LandingPage() {
                 {
                   n: '01',
                   title: 'Pick a format',
-                  body: 'Five templates, each modelled on a resume format that recruiters already recognise — from the dense single-column engineering standard to a two-column sidebar.',
+                  body: 'Seventeen templates across five layouts, each modelled on a resume format that recruiters already recognise — from the dense single-column engineering standard to a two-column sidebar.',
                 },
                 {
                   n: '02',
@@ -232,6 +232,39 @@ export default function LandingPage() {
                   </motion.div>
                 ))}
               </dl>
+            </div>
+          </div>
+        </section>
+
+        {/* The second way in. Buried on the dashboard until now, which meant
+            nobody arriving here knew the app could do it at all. */}
+        <section className="border-b border-rule">
+          <div className="mx-auto max-w-6xl px-6 py-20 lg:py-24">
+            <div className="grid items-center gap-12 lg:grid-cols-[0.55fr_0.45fr] lg:gap-20">
+              <div>
+                <h2 className="font-mono text-[0.6875rem] uppercase tracking-[0.18em] text-ink-faint">
+                  Already have a resume
+                </h2>
+                <p className="mt-6 max-w-[20ch] font-display text-[clamp(1.75rem,3.4vw,2.5rem)] leading-[1.15] tracking-tight text-balance">
+                  Upload a PDF and edit it in place.
+                </p>
+                <p className="mt-6 max-w-[52ch] leading-relaxed text-ink-muted text-pretty">
+                  Drop in a PDF you exported years ago — from Word, Canva, LaTeX, anywhere. We read
+                  its text, fonts and page layout, and let you retype any line where it sits.
+                  Everything you don&rsquo;t touch comes back out of the exporter untouched.
+                </p>
+
+                <div className="mt-9 flex flex-wrap items-center gap-3">
+                  <ButtonLink href="/pdf" size="lg">
+                    Edit an existing PDF
+                  </ButtonLink>
+                  <span className="text-[0.8125rem] text-ink-faint">
+                    No re-typing, no reformatting.
+                  </span>
+                </div>
+              </div>
+
+              <PdfEditPreview />
             </div>
           </div>
         </section>
@@ -506,6 +539,88 @@ function PaperPreview({ stagger }: { stagger: boolean }) {
           </dl>
         </motion.div>
       </div>
+    </motion.div>
+  );
+}
+
+/**
+ * The uploaded-PDF story in one image: a page that isn't ours, with one line
+ * mid-edit. Deliberately greyscale apart from the caret and the selected run —
+ * the point is that everything else stays exactly as it was.
+ */
+function PdfEditPreview() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: '-80px' }}
+      transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+      className="relative mx-auto w-full max-w-[22rem] lg:max-w-none"
+    >
+      <div className="relative rotate-[1.2deg] rounded-[3px] bg-white shadow-page ring-1 ring-black/5">
+        {/* A filename bar, so it reads as somebody else's file rather than a
+            document we generated. */}
+        <div className="flex items-center gap-1.5 border-b border-neutral-200 px-4 py-2">
+          <PdfGlyph />
+          <span className="font-mono text-[0.5625rem] text-neutral-500">
+            resume-2019-final-v3.pdf
+          </span>
+        </div>
+
+        <div className="px-7 py-6 font-sans text-neutral-800">
+          <div className="text-[1.05rem] font-bold leading-none tracking-tight text-neutral-900">
+            Priya Raghunathan
+          </div>
+          <div className="mt-1.5 text-[0.45rem] leading-none text-neutral-500">
+            priya.r@example.com · (212) 555-0104 · Brooklyn, NY
+          </div>
+
+          <div className="mt-5">
+            <SectionRule>Experience</SectionRule>
+
+            <div className="mt-2">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[0.55rem] font-bold leading-none text-neutral-900">
+                  Northline Health
+                </span>
+                <span className="shrink-0 text-[0.45rem] leading-none text-neutral-600">
+                  2019 — Present
+                </span>
+              </div>
+
+              {/* The line being retyped: same font, same size, same baseline as
+                  its neighbours — that's the whole trick. */}
+              <div className="mt-[3px] flex items-baseline gap-1">
+                <span className="relative rounded-[1px] bg-[#fde3d2] px-[1px] text-[0.5rem] italic leading-none text-neutral-900">
+                  Attending Physician
+                </span>
+                <span
+                  aria-hidden
+                  className="caret-blink inline-block h-[0.5rem] w-[1px] translate-y-[1px] bg-[#c2410c]"
+                />
+              </div>
+
+              <div className="mt-1.5 space-y-[3px] pl-2">
+                <BulletRule width="97%" />
+                <BulletRule width="88%" />
+                <BulletRule width="63%" />
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <SectionRule>Education</SectionRule>
+            <div className="mt-2 space-y-[3px] pl-2">
+              <BulletRule width="72%" />
+              <BulletRule width="54%" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <FloatingChip className="-left-3 top-14 sm:-left-6" delay={0.5} z={0}>
+        Original fonts kept
+      </FloatingChip>
     </motion.div>
   );
 }

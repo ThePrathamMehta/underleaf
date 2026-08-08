@@ -40,6 +40,12 @@ type EditableTextProps = {
    * would be sliced apart at the commas.
    */
   rich?: boolean;
+  /**
+   * Extra attributes stamped onto the rendered element. Used to mark a field as
+   * a pagination block (see paginate.ts) when the field *is* the block — a
+   * bullet or a summary paragraph — rather than being wrapped in one.
+   */
+  blockAttrs?: Record<string, string | number>;
 };
 
 /**
@@ -65,6 +71,7 @@ export function EditableText({
   as: Tag = "span",
   multiline = false,
   rich = true,
+  blockAttrs,
 }: EditableTextProps) {
   const editing = useResumeEditing();
   const ref = useRef<HTMLElement>(null);
@@ -93,12 +100,16 @@ export function EditableText({
   }, [value, rich]);
 
   if (!editing) {
-    if (!rich) return <Tag className={className}>{value}</Tag>;
+    if (!rich) return <Tag className={className} {...blockAttrs}>{value}</Tag>;
     // Sanitized at render, not trusted from storage: this same path renders the
     // exported PDF, and content can reach the database by routes other than
     // this component.
     return (
-      <Tag className={className} dangerouslySetInnerHTML={{ __html: sanitizeInlineHtml(value) }} />
+      <Tag
+        className={className}
+        {...blockAttrs}
+        dangerouslySetInnerHTML={{ __html: sanitizeInlineHtml(value) }}
+      />
     );
   }
 
@@ -115,6 +126,7 @@ export function EditableText({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ref={ref as any}
       className={className}
+      {...blockAttrs}
       contentEditable
       suppressContentEditableWarning
       spellCheck

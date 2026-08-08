@@ -171,8 +171,12 @@ export type ResumeContent = z.infer<typeof resumeContentSchema>;
  * Groups a resume's *visible* sections into printed pages, in `order` sequence,
  * starting a new page before any section flagged `pageBreakBefore` (after the
  * first). Returns arrays of section ids. An empty resume yields a single empty
- * page so a canvas always has one sheet. With no page breaks this returns one
- * page holding every visible section — i.e. the original single-page behaviour.
+ * page so a canvas always has one sheet.
+ *
+ * Manual breaks only — it knows nothing about how tall the content is. The real
+ * sheet count comes from measuring and packing (`@repo/ui/resume/paginate`);
+ * this is the fallback for renderers with nothing measured, i.e. the thumbnails
+ * and the gallery, where one flowing sheet is all that's wanted anyway.
  */
 export function splitSectionsIntoPages(content: ResumeContent): string[][] {
   const ordered = content.sections
@@ -187,9 +191,4 @@ export function splitSectionsIntoPages(content: ResumeContent): string[][] {
     pages[pages.length - 1]!.push(section.id);
   });
   return pages;
-}
-
-/** How many printed pages this resume currently spans (always >= 1). */
-export function pageCount(content: ResumeContent): number {
-  return splitSectionsIntoPages(content).length;
 }

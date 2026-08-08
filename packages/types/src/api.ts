@@ -24,9 +24,62 @@ export const publicUserSchema = z.object({
   email: z.string(),
   name: z.string(),
   createdAt: z.string(),
+  /**
+   * Whether this account can sign in with a password at all. OAuth-only users
+   * have no hash, so settings must offer them "set a password" rather than
+   * "change" one, and can't ask for a current password they never chose.
+   *
+   * A boolean rather than the hash itself — the hash never leaves the server.
+   */
+  hasPassword: z.boolean(),
+  /** `"google"`, `"github"`, or null for a password-only account. */
+  oauthProvider: z.string().nullable(),
 });
 
 export type PublicUser = z.infer<typeof publicUserSchema>;
+
+// --- Account settings ---
+
+/**
+ * Both fields optional so the form can send only what changed, but at least one
+ * must be present: an empty PATCH is a mistake on the caller's side, not a
+ * no-op worth pretending succeeded.
+ */
+export const updateProfileBodySchema = z
+  .object({
+    name: z.string().min(1).max(120).optional(),
+    email: z.string().email().max(200).optional(),
+  })
+  .refine((body) => body.name !== undefined || body.email !== undefined, {
+    message: "Provide a name or an email to change",
+  });
+
+export type UpdateProfileBody = z.infer<typeof updateProfileBodySchema>;
+
+/**
+ * `currentPassword` is optional here rather than required, because an OAuth-only
+ * account has no current password to prove. The route enforces it whenever the
+ * account actually has a hash — validation can't see that.
+ */
+export const changePasswordBodySchema = z.object({
+  currentPassword: z.string().min(1).max(200).optional(),
+  newPassword: z.string().min(8, "Password must be at least 8 characters").max(200),
+});
+
+export type ChangePasswordBody = z.infer<typeof changePasswordBodySchema>;
+
+/**
+ * Deleting is irreversible and cascades to every resume and uploaded PDF, so it
+ * needs a proof of intent. Which proof depends on the account: a password user
+ * retypes their password, an OAuth-only user — who has none — retypes their own
+ * email address. The route picks; both are optional to the schema.
+ */
+export const deleteAccountBodySchema = z.object({
+  password: z.string().min(1).max(200).optional(),
+  confirmEmail: z.string().max(200).optional(),
+});
+
+export type DeleteAccountBody = z.infer<typeof deleteAccountBodySchema>;
 
 // --- Templates ---
 
@@ -93,6 +146,15 @@ export const createResumeBodySchema = z.object({
    * scaffolded content payload instead of the template's sample content.
    */
   blank: z.boolean().optional(),
+  /**
+   * Profession slug the user was browsing when they picked this template. The
+   * new resume then starts from that profession's sample rather than the
+   * template's general one — so what they previewed is what they get.
+   *
+   * A slug, not the content itself: the server resolves it against the seeded
+   * row, so a client can't post arbitrary content in as a "sample".
+   */
+  profession: z.string().min(1).max(80).optional(),
 });
 
 export type CreateResumeBody = z.infer<typeof createResumeBodySchema>;

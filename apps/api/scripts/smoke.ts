@@ -101,7 +101,15 @@ async function main() {
 
   const templates = await call("GET", "/templates");
   const templateList = templates.json.templates ?? [];
-  check("GET /templates lists all 5 seeded templates", templateList.length === 5, templateList.length);
+  // Asserts the five base templates rather than a total, since v2's theme
+  // variants expand that total and a fixed count would break on every new one.
+  const BASE_SLUGS = ["jakes", "deedy", "modern-minimal", "classic", "creative"];
+  const slugs = new Set(templateList.map((t: Json) => t.slug));
+  check(
+    "GET /templates lists the base templates",
+    BASE_SLUGS.every((slug) => slugs.has(slug)),
+    BASE_SLUGS.filter((slug) => !slugs.has(slug)),
+  );
 
   const jakes = templateList.find((t: Json) => t.slug === "jakes");
   check("the Jake's template is seeded", Boolean(jakes), templateList.map((t: Json) => t.slug));
@@ -238,6 +246,10 @@ async function main() {
 
   await call("DELETE", `/resumes/${duplicated.json.resume?.id}`, { cookie: cookieA });
 
+  await smokePdfs(cookieA, cookieB);
+
+  await smokeAccountSettings(stamp, userA.email);
+
   const logout = await call("POST", "/auth/logout", { cookie: cookieA });
   check("POST /auth/logout succeeds", logout.status === 204, logout.status);
 
@@ -247,6 +259,326 @@ async function main() {
     process.exit(1);
   }
   console.log("All good.\n");
+}
+
+/**
+ * Account settings, on a throwaway third user.
+ *
+ * Deliberately not user A or B: the last thing this exercises is account
+ * deletion, and every earlier assertion in the run still depends on those two
+ * existing.
+ */
+async function smokeAccountSettings(stamp: number, takenEmail: string) {
+  console.log("\n  --- Account settings ---\n");
+
+  const account = {
+    email: `smoke-c-${stamp}@example.com`,
+    password: "correct horse battery",
+    name: "Smoke C",
+  };
+  const signup = await call("POST", "/auth/signup", { body: account });
+  const cookie = cookieFrom(signup.response);
+  check("a third user signs up for the settings pass", signup.status === 201, signup.json);
+  check(
+    "a password account reports hasPassword with no provider",
+    signup.json.user?.hasPassword === true && signup.json.user?.oauthProvider === null,
+    signup.json.user,
+  );
+
+  // --- Profile ---
+
+  const renamed = await call("PATCH", "/auth/me", { body: { name: "Renamed C" }, cookie });
+  check(
+    "PATCH /auth/me renames the account",
+    renamed.status === 200 && renamed.json.user?.name === "Renamed C",
+    renamed.json,
+  );
+
+  const newEmail = `smoke-c2-${stamp}@example.com`;
+  const reEmailed = await call("PATCH", "/auth/me", { body: { email: newEmail.toUpperCase() }, cookie });
+  check(
+    "PATCH /auth/me lowercases a changed email",
+    reEmailed.status === 200 && reEmailed.json.user?.email === newEmail,
+    reEmailed.json,
+  );
+
+  const conflict = await call("PATCH", "/auth/me", { body: { email: takenEmail }, cookie });
+  check("changing to an email in use returns 409", conflict.status === 409, conflict.json);
+
+  const empty = await call("PATCH", "/auth/me", { body: {}, cookie });
+  check("an empty profile update is rejected with 400", empty.status === 400, empty.json);
+
+  const anonPatch = await call("PATCH", "/auth/me", { body: { name: "Nobody" } });
+  check("PATCH /auth/me without a cookie returns 401", anonPatch.status === 401, anonPatch.status);
+
+  // --- Password ---
+
+  const wrongCurrent = await call("PUT", "/auth/me/password", {
+    body: { currentPassword: "not the password", newPassword: "a whole new password" },
+    cookie,
+  });
+  check("changing a password with the wrong current one returns 401", wrongCurrent.status === 401, wrongCurrent.json);
+
+  const missingCurrent = await call("PUT", "/auth/me/password", {
+    body: { newPassword: "a whole new password" },
+    cookie,
+  });
+  check(
+    "changing a password without the current one returns 401",
+    missingCurrent.status === 401,
+    missingCurrent.json,
+  );
+
+  const tooShort = await call("PUT", "/auth/me/password", {
+    body: { currentPassword: account.password, newPassword: "short" },
+    cookie,
+  });
+  check("a short new password is rejected with 400", tooShort.status === 400, tooShort.json);
+
+  const nextPassword = "a whole new password";
+  const changed = await call("PUT", "/auth/me/password", {
+    body: { currentPassword: account.password, newPassword: nextPassword },
+    cookie,
+  });
+  check("PUT /auth/me/password succeeds", changed.status === 204, changed.status);
+
+  const oldLogin = await call("POST", "/auth/login", {
+    body: { email: newEmail, password: account.password },
+  });
+  check("the old password no longer works", oldLogin.status === 401, oldLogin.status);
+
+  const newLogin = await call("POST", "/auth/login", {
+    body: { email: newEmail, password: nextPassword },
+  });
+  check("the new password signs in at the new email", newLogin.status === 200, newLogin.json);
+
+  // --- Deletion ---
+
+  // Give the account something to cascade, so the delete isn't exercised against
+  // an empty row.
+  const templates = await call("GET", "/templates");
+  const templateId = (templates.json.templates ?? [])[0]?.id;
+  if (templateId) {
+    await call("POST", "/resumes", { body: { templateId, title: "Doomed" }, cookie });
+  }
+
+  const wrongProof = await call("DELETE", "/auth/me", { body: { password: "wrong" }, cookie });
+  check("deleting with the wrong password returns 401", wrongProof.status === 401, wrongProof.json);
+
+  const stillThere = await call("GET", "/auth/me", { cookie });
+  check("a rejected delete leaves the account intact", stillThere.status === 200, stillThere.status);
+
+  const deleted = await call("DELETE", "/auth/me", { body: { password: nextPassword }, cookie });
+  check("DELETE /auth/me removes the account", deleted.status === 204, deleted.json);
+
+  const gone = await call("GET", "/auth/me", { cookie });
+  check("the deleted account's token no longer resolves", gone.status === 401, gone.status);
+
+  const ghostLogin = await call("POST", "/auth/login", {
+    body: { email: newEmail, password: nextPassword },
+  });
+  check("the deleted account can't sign back in", ghostLogin.status === 401, ghostLogin.status);
+}
+
+async function smokePdfs(cookieA: string, cookieB: string) {
+  console.log("\n--- PDF Upload & Edit (Feature B) ---");
+
+  // Generate a test PDF in memory
+  const { PDFDocument: PDFLib, StandardFonts, rgb } = await import("pdf-lib");
+  const testDoc = await PDFLib.create();
+  const helv = await testDoc.embedFont(StandardFonts.Helvetica);
+  const page = testDoc.addPage([612, 792]);
+  page.drawText("PDF Test Resume", { x: 72, y: 720, size: 24, font: helv });
+  page.drawText("Software Engineer", { x: 72, y: 692, size: 11, font: helv, color: rgb(0.3, 0.3, 0.3) });
+  page.drawText("test@example.com", { x: 72, y: 672, size: 10, font: helv, color: rgb(0.76, 0.25, 0.05) });
+  const pdfBytes = await testDoc.save();
+
+  // Upload as multipart/form-data. The cast is because pdf-lib types its output
+  // as Uint8Array<ArrayBufferLike>, which TS won't narrow to the ArrayBuffer-backed
+  // BlobPart even though it always is one in practice.
+  const form = new FormData();
+  form.append(
+    "file",
+    new Blob([pdfBytes as Uint8Array<ArrayBuffer>], { type: "application/pdf" }),
+    "test-resume.pdf",
+  );
+
+  const uploadRes = await fetch(`${BASE}/pdfs`, {
+    method: "POST",
+    headers: { Cookie: cookieA },
+    body: form,
+  });
+
+  const upload = await uploadRes.json();
+  check("POST /pdfs uploads and parses a PDF", uploadRes.status === 201, upload.error);
+
+  const docId = upload.document?.id;
+  check("the parsed document has an id", Boolean(docId));
+  check("the document has pages", (upload.document?.pages ?? []).length > 0);
+  check("pages have text runs", (upload.document?.pages?.[0]?.runs ?? []).length > 0);
+  check("runs have font metadata", upload.document?.pages?.[0]?.runs?.[0]?.fontFamily?.length > 0);
+
+  const list = await call("GET", "/pdfs", { cookie: cookieA });
+  check("GET /pdfs lists the user's PDFs", (list.json.documents ?? []).length === 1);
+
+  const get = await call("GET", `/pdfs/${docId}`, { cookie: cookieA });
+  check("GET /pdfs/:id returns the full document", get.json.document?.id === docId);
+
+  // Update one text run
+  const runId = get.json.document?.pages?.[0]?.runs?.[0]?.id;
+  if (runId) {
+    const patchRun = await call("PATCH", `/pdfs/${docId}/runs/${runId}`, {
+      body: { text: "Edited Text" },
+      cookie: cookieA,
+    });
+    check("PATCH /pdfs/:id/runs/:runId updates text", patchRun.status === 204);
+  }
+
+  // Rename the document
+  const rename = await call("PATCH", `/pdfs/${docId}`, {
+    body: { title: "Renamed PDF" },
+    cookie: cookieA,
+  });
+  check("PATCH /pdfs/:id renames the document", rename.json.document?.title === "Renamed PDF");
+
+  // Export the edited PDF
+  const exportRes = await fetch(`${BASE}/pdfs/${docId}/export.pdf`, {
+    method: "GET",
+    headers: { Cookie: cookieA },
+  });
+  check("GET /pdfs/:id/export.pdf returns 200", exportRes.status === 200);
+  check(
+    "the export is a PDF attachment",
+    exportRes.headers.get("content-type") === "application/pdf",
+  );
+
+  if (exportRes.status === 200) {
+    const bytes = new Uint8Array(await exportRes.arrayBuffer());
+    const magic = new TextDecoder().decode(bytes.slice(0, 5));
+    check("the exported PDF starts with the magic bytes", magic === "%PDF-");
+    check("the exported PDF is non-trivial", bytes.length > 1000);
+  }
+
+  // Verify user B cannot access user A's PDF
+  const bRead = await call("GET", `/pdfs/${docId}`, { cookie: cookieB });
+  check("user B cannot READ user A's PDF", bRead.status === 404);
+
+  const bPatch = await call("PATCH", `/pdfs/${docId}`, {
+    body: { title: "Hijacked" },
+    cookie: cookieB,
+  });
+  check("user B cannot PATCH user A's PDF", bPatch.status === 404);
+
+  const bDelete = await call("DELETE", `/pdfs/${docId}`, { cookie: cookieB });
+  check("user B cannot DELETE user A's PDF", bDelete.status === 404);
+
+  const bExport = await fetch(`${BASE}/pdfs/${docId}/export.pdf`, {
+    method: "GET",
+    headers: { Cookie: cookieB },
+  });
+  check("user B cannot EXPORT user A's PDF", bExport.status === 404);
+
+  // Cleanup
+  const deleted = await call("DELETE", `/pdfs/${docId}`, { cookie: cookieA });
+  check("DELETE /pdfs/:id removes the PDF", deleted.status === 204);
+
+  const afterDelete = await call("GET", `/pdfs/${docId}`, { cookie: cookieA });
+  check("the deleted PDF is gone", afterDelete.status === 404);
+
+  await smokeScannedRejection(cookieA);
+  await smokeMultiPage(cookieA);
+}
+
+/** Uploads raw PDF bytes as multipart, the way the browser's FormData would. */
+async function uploadPdf(bytes: Uint8Array, filename: string, cookie: string) {
+  const form = new FormData();
+  form.append("file", new Blob([bytes as Uint8Array<ArrayBuffer>], { type: "application/pdf" }), filename);
+
+  const response = await fetch(`${BASE}/pdfs`, { method: "POST", headers: { Cookie: cookie }, body: form });
+  const contentType = response.headers.get("content-type") ?? "";
+  const json = contentType.includes("application/json") ? await response.json() : {};
+  return { status: response.status, json: json as Json };
+}
+
+/**
+ * A PDF with no text layer must be refused at upload with an explanation, not
+ * accepted into an editor with nothing to edit (spec B.7's no-OCR non-goal).
+ */
+async function smokeScannedRejection(cookie: string) {
+  console.log("\n--- Scanned-PDF rejection ---");
+
+  const { PDFDocument: PDFLib, rgb } = await import("pdf-lib");
+  const doc = await PDFLib.create();
+  // Graphics only — this is what a scan's text-free page looks like to a parser.
+  doc.addPage([612, 792]).drawRectangle({ x: 100, y: 400, width: 400, height: 200, color: rgb(0.8, 0.8, 0.85) });
+
+  const result = await uploadPdf(await doc.save(), "scanned.pdf", cookie);
+  check("a PDF with no text layer is rejected with 400", result.status === 400, result.json);
+  check(
+    "the rejection explains that OCR isn't supported",
+    /ocr|scan/i.test(String(result.json.error)),
+    result.json.error,
+  );
+}
+
+/** Page count and per-page content must both survive the round trip. */
+async function smokeMultiPage(cookie: string) {
+  console.log("\n--- Multi-page round trip ---");
+
+  const { PDFDocument: PDFLib, StandardFonts } = await import("pdf-lib");
+  const source = await PDFLib.create();
+  const font = await source.embedFont(StandardFonts.Helvetica);
+
+  const PAGES = 3;
+  for (let index = 0; index < PAGES; index++) {
+    const page = source.addPage([612, 792]);
+    page.drawText(`Page ${index + 1} heading`, { x: 72, y: 700, size: 18, font });
+    page.drawText(`Body text on page ${index + 1}.`, { x: 72, y: 660, size: 11, font });
+  }
+
+  const uploaded = await uploadPdf(await source.save(), "multi-page.pdf", cookie);
+  check("a 3-page PDF uploads", uploaded.status === 201, uploaded.json);
+
+  const doc = uploaded.json.document;
+  const docId = doc?.id;
+  if (!docId) return;
+
+  check("the document reports 3 pages", doc.pageCount === PAGES, doc.pageCount);
+  check("all 3 pages were parsed", (doc.pages ?? []).length === PAGES, doc.pages?.length);
+  check(
+    "every page has its own text runs",
+    (doc.pages ?? []).every((page: Json) => (page.runs ?? []).length > 0),
+    (doc.pages ?? []).map((page: Json) => page.runs?.length),
+  );
+  check(
+    "each page kept its own content",
+    (doc.pages ?? []).every((page: Json, index: number) =>
+      (page.runs ?? []).some((run: Json) => run.originalText?.includes(`Page ${index + 1}`)),
+    ),
+  );
+
+  // Edit the last page specifically: an off-by-one in the export's page lookup
+  // would put this text on the wrong page, or drop it.
+  const lastPage = doc.pages[PAGES - 1];
+  const target = lastPage.runs.find((run: Json) => run.originalText?.includes("Page 3"));
+  if (target) {
+    const patched = await call("PATCH", `/pdfs/${docId}/runs/${target.id}`, {
+      body: { text: "Edited on the last page" },
+      cookie,
+    });
+    check("a run on the last page accepts an edit", patched.status === 204, patched.status);
+  }
+
+  const exported = await fetch(`${BASE}/pdfs/${docId}/export.pdf`, { headers: { Cookie: cookie } });
+  check("the multi-page export returns 200", exported.status === 200);
+
+  if (exported.status === 200) {
+    const bytes = new Uint8Array(await exported.arrayBuffer());
+    const out = await PDFLib.load(bytes);
+    check(`the export kept all ${PAGES} pages`, out.getPageCount() === PAGES, out.getPageCount());
+  }
+
+  await call("DELETE", `/pdfs/${docId}`, { cookie });
 }
 
 main().catch((error) => {

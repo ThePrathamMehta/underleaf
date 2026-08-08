@@ -1,3 +1,5 @@
+import path from "node:path";
+
 const isProduction = process.env.NODE_ENV === "production";
 
 function required(name: string, devFallback?: string): string {
@@ -52,6 +54,21 @@ export const config = {
   oauth,
   /** True when at least one provider is fully configured. */
   oauthEnabled: Boolean(oauth.google || oauth.github),
+  /**
+   * Where uploaded PDFs and their rendered page images live. Absolute so the
+   * server's working directory can't move the store, and resolved once here so
+   * the storage driver never has to guess.
+   *
+   * This is the local-disk stand-in for a bucket. Swapping to S3/R2 means adding
+   * a driver in services/storage.ts and reading credentials here — the rest of
+   * the app only ever sees opaque keys.
+   */
+  storageDir: path.resolve(process.env.STORAGE_DIR ?? ".storage"),
+  /**
+   * Cap on uploaded PDF size. Parsing and rasterizing is CPU- and memory-heavy
+   * and runs in-process, so this is a load-bearing limit, not just a UX nicety.
+   */
+  maxUploadBytes: Number(process.env.MAX_UPLOAD_BYTES ?? 15 * 1024 * 1024),
 } as const;
 
 if (isProduction && !process.env.DATABASE_URL) {

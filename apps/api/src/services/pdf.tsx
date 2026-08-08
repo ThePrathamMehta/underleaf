@@ -6,6 +6,14 @@ import puppeteer, { type Browser } from "puppeteer";
 import type { ResumeContent, Theme } from "@repo/types";
 import { ResumeDocument } from "@repo/ui/resume";
 import { ALL_FONT_FILES, fontFacesFromBase64 } from "@repo/ui/resume/fonts";
+import {
+  forcedBreakIds,
+  measureArgs,
+  measureFlow,
+  packBlocks,
+  toSingleFlow,
+  type PageLayout,
+} from "@repo/ui/resume/paginate";
 
 // --- Font bytes, read once ---
 
@@ -103,7 +111,20 @@ export type RenderResumeArgs = {
   templateSlug: string;
   content: ResumeContent;
   theme: Theme;
+  /**
+   * Measured pagination. Produced by the measuring pass below; omitted when a
+   * caller just wants the document as it falls, which is what the smoke script
+   * and any direct HTML consumer get.
+   */
+  layout?: PageLayout[];
 };
+
+/** Root of the measuring mirror. The same selector the canvas uses. */
+const MEASURE_ROOT = "[data-measure-root]";
+
+function htmlDocument(body: string): string {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Resume</title><style>html,body{margin:0;padding:0;background:#fff;}</style></head><body>${body}</body></html>`;
+}
 
 /**
  * Renders the resume to a full HTML document.
@@ -112,7 +133,7 @@ export type RenderResumeArgs = {
  * outputs cannot drift. Fonts are inlined as base64 because `setContent()` has
  * no origin for relative URLs to resolve against.
  */
-export function renderResumeHtml({ templateSlug, content, theme }: RenderResumeArgs): string {
+export function renderResumeHtml({ templateSlug, content, theme, layout }: RenderResumeArgs): string {
   const fontFaces = fontFacesFromBase64(theme, (file) => fontCache.get(file));
 
   const markup = renderToStaticMarkup(
@@ -121,12 +142,46 @@ export function renderResumeHtml({ templateSlug, content, theme }: RenderResumeA
       content={content}
       theme={theme}
       fontFaces={fontFaces}
+      layout={layout}
     />,
   );
 
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Resume</title><style>html,body{margin:0;padding:0;background:#fff;}</style></head><body>${markup}</body></html>`;
+  return htmlDocument(markup);
 }
 
+/**
+ * The same document as one uninterrupted flow, for the measuring pass to read.
+ *
+ * `.rd-measure-host` stops the sheet clipping what runs past its bottom edge —
+ * overflow hides painting but leaves layout alone, so every block still reports
+ * its true height and the whole resume can be measured in one go.
+ */
+function renderMeasureHtml({ templateSlug, content, theme }: RenderResumeArgs): string {
+  const fontFaces = fontFacesFromBase64(theme, (file) => fontCache.get(file));
+
+  const markup = renderToStaticMarkup(
+    <ResumeDocument
+      templateSlug={templateSlug}
+      content={toSingleFlow(content)}
+      theme={theme}
+      fontFaces={fontFaces}
+    />,
+  );
+
+  return htmlDocument(`<div data-measure-root class="rd-measure-host">${markup}</div>`);
+}
+
+/**
+ * Exports a resume as a PDF, in three passes on one page: render the document
+ * as a single flow, measure it, then re-render it with the sheets the
+ * measurements imply.
+ *
+ * The measuring happens here rather than server-side because
+ * `renderToStaticMarkup` runs no layout — but Puppeteer is a layout engine and
+ * is already open. The decision itself is `packBlocks`, the same pure function
+ * the canvas calls on the same measurements, so screen and print agree on where
+ * a sheet ends by construction rather than by two implementations kept in step.
+ */
 export async function exportResumePdf(args: RenderResumeArgs): Promise<Uint8Array> {
   const release = await acquireSlot();
   let page: Awaited<ReturnType<Browser["newPage"]>> | undefined;
@@ -135,10 +190,26 @@ export async function exportResumePdf(args: RenderResumeArgs): Promise<Uint8Arra
     const browser = await getBrowser();
     page = await browser.newPage();
 
-    await page.setContent(renderResumeHtml(args), { waitUntil: "load" });
+    // Wide enough that a Letter sheet (816px) never meets the viewport edge.
+    // Nothing in the document is viewport-relative, but a measuring pass should
+    // not depend on Puppeteer's default window size to stay what it is.
+    await page.setViewport({ width: 1200, height: 1600 });
 
-    // Base64 @font-face decoding is async; printing before it settles would
-    // measure fallback metrics and shift every line.
+    await page.setContent(renderMeasureHtml(args), { waitUntil: "load" });
+
+    // Base64 @font-face decoding is async; measuring or printing before it
+    // settles would use fallback metrics and shift every line.
+    await page.evaluate(() => document.fonts.ready);
+
+    const flow = await page.evaluate(measureFlow, measureArgs(MEASURE_ROOT));
+    // A zero usable height means the mirror didn't render — fall back to the
+    // unpaginated document rather than packing against nonsense.
+    const layout =
+      flow.usableHeight > 0
+        ? packBlocks({ ...flow, forcedBreaks: forcedBreakIds(args.content) })
+        : undefined;
+
+    await page.setContent(renderResumeHtml({ ...args, layout }), { waitUntil: "load" });
     await page.evaluate(() => document.fonts.ready);
 
     return await page.pdf({

@@ -11,6 +11,12 @@ type AuthState = {
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
+  /**
+   * Replaces the cached user after settings changes it, or clears it after the
+   * account is deleted. Without this the header and account menu would keep
+   * showing the old name until a full reload.
+   */
+  setUser: (user: PublicUser | null) => void;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -59,7 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, signup, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, signup, logout, setUser }}>
       {children}
     </AuthContext.Provider>
   );

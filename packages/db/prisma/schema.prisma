@@ -5,6 +5,10 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  // Migrations run against the un-pooled endpoint. Prisma Migrate takes a
+  // session-scoped advisory lock, which a transaction-pooling PgBouncer in
+  // front of the pooled URL can't keep across statements.
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 model User {
@@ -21,6 +25,7 @@ model User {
   oauthId       String?
 
   resumes Resume[]
+  pdfs    PdfDocument[]
 
   @@unique([oauthProvider, oauthId])
 }
@@ -60,6 +65,19 @@ model Profession {
   iconKey     String
   /// Display order in the gallery's profession row.
   sortOrder   Int    @default(0)
+  /// A sample resume written for *this* profession — a CA's articleship and
+  /// audit engagements, a lawyer's bar admissions and matters — validated
+  /// against resumeContentSchema in @repo/types.
+  ///
+  /// Lives here rather than on Template because the two are many-to-many: the
+  /// Classic layout is a curated pick for six professions, so one document per
+  /// template could only ever show one profession's career. The gallery
+  /// substitutes this when a profession filter is active and falls back to the
+  /// template's own sample otherwise.
+  ///
+  /// Nullable so a profession seeded without one still renders — it just shows
+  /// the template's general sample.
+  sampleContent Json?
 
   templates TemplateProfession[]
 
@@ -98,4 +116,114 @@ model Resume {
   template Template @relation(fields: [templateId], references: [id])
 
   @@index([userId, updatedAt])
+}
+
+// --- Uploaded PDFs ---
+//
+// Deliberately a separate model family from Resume. A Resume is structured
+// content we render; an uploaded PDF is somebody else's fixed layout that we can
+// only retype in place. Forcing the two through one model would mean a `content`
+// JSON that means something different depending on a type flag — and every
+// consumer branching on it.
+
+/// One uploaded PDF, parsed once at upload into pages and text runs.
+model PdfDocument {
+  id     String @id @default(cuid())
+  userId String
+  /// Storage key for the original upload — never a public URL. The bytes are
+  /// served through an ownership-checked route, and export re-reads them so the
+  /// non-text content of the source is preserved exactly.
+  ///
+  /// Named ...Url to match the field name in the spec; it holds a key.
+  originalFileUrl String
+  pageCount       Int
+  title           String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pages PdfPage[]
+
+  @@index([userId, updatedAt])
+}
+
+/// A single page: its PDF-space dimensions and its rasterized backdrop.
+model PdfPage {
+  id            String @id @default(cuid())
+  pdfDocumentId String
+  /// Zero-based, matching the array index the editor navigates by.
+  pageIndex     Int
+  /// Page size in PDF points at scale 1, so overlay coordinates and export
+  /// coordinates share one space regardless of the raster's resolution.
+  width         Float
+  height        Float
+  /// Storage key for the rendered page image — the editor's canvas backdrop,
+  /// carrying every non-text element (rules, logos, graphics).
+  backgroundImageUrl String
+  /// Content hash of those image bytes, carried in the image URL as a query
+  /// param. Page images are immutable-cached by the browser, so re-parsing a
+  /// document has to change the URL or the editor keeps showing the old backdrop.
+  backgroundVersion  String
+
+  document PdfDocument  @relation(fields: [pdfDocumentId], references: [id], onDelete: Cascade)
+  runs     PdfTextRun[]
+
+  @@unique([pdfDocumentId, pageIndex])
+}
+
+/// One fixed-position block of text, editable in place.
+///
+/// `originalText` is kept alongside `text` so an edit is always a diff against
+/// the source: we know exactly which runs to redact at export time, and an
+/// export that fails on a run can fall back to what the PDF already says.
+model PdfTextRun {
+  id        String @id @default(cuid())
+  pdfPageId String
+
+  /// Bounding box in PDF points, top-left origin (the browser's convention).
+  /// Converted back to PDF's bottom-left origin at export.
+  x      Float
+  y      Float
+  width  Float
+  height Float
+
+  /// Distance from the top of the box down to the text baseline, in points.
+  ///
+  /// Stored rather than derived because it can't be recovered from the box. The
+  /// parser builds the box from the font's own ascent and descent
+  /// (`height = (ascent + |descent|) * fontSize`), so `height` is a single
+  /// equation in two unknowns — export would have to guess a descent ratio, and
+  /// a wrong guess drops redrawn text off the baseline its unedited neighbours
+  /// sit on. Keeping the value the parser already computed makes the export's
+  /// inversion exact.
+  baseline Float
+
+  /// CSS font stack to render this run with in the editor.
+  fontFamily String
+  /// Which tier of B.2.3's font resolution produced `fontFamily`:
+  /// `embedded` (the PDF's own font file), `standard` (a base-14 font mapped to
+  /// its web equivalent), or `fallback` (best-effort by name). Only `fallback`
+  /// is shown to the user as inexact.
+  ///
+  /// The spec calls this `fontSizeSource`; that reads as a typo, since its
+  /// values describe the font and `fontSize` is a separate field.
+  fontSource String
+  /// Storage key for the extracted embedded font program, when `fontSource` is
+  /// `embedded`. Null otherwise.
+  embeddedFontUrl String?
+  fontSize        Float
+  /// Glyph colour, `#rrggbb`.
+  color           String
+  /// Local background behind this run, `#rrggbb` — sampled at parse time and
+  /// used both to hide the original glyphs in the editor backdrop and to paint
+  /// the redaction rectangle at export, so the two can't disagree.
+  backgroundColor String
+
+  originalText String
+  text         String
+  updatedAt    DateTime @updatedAt
+
+  page PdfPage @relation(fields: [pdfPageId], references: [id], onDelete: Cascade)
+
+  @@index([pdfPageId])
 }

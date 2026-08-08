@@ -36,7 +36,52 @@ const BASE_SIZES = {
 } as const;
 
 /**
- * Produces the complete stylesheet for a resume document.
+ * Every value the theme contributes, as custom properties for one document's
+ * root element.
+ *
+ * Deliberately not part of the stylesheet below. Those rules are scoped to the
+ * `.rd-root` *class*, so a page holding more than one document — the template
+ * gallery renders six — carries that many equal-specificity copies of the same
+ * rule, and the last one parsed wins for every root on the page. Each thumbnail
+ * then rendered with some other card's page size, margin, fonts and type scale;
+ * the visible symptom was a Creative band stopping short of its own page edge,
+ * because the wrapper was sized for Letter while the page had A4's width.
+ *
+ * An inline style is per-element and outranks any stylesheet, so each document
+ * keeps its own theme and the static rules resolve `var()` against whichever
+ * root they are inside.
+ */
+export function themeToCssVars(theme: Theme): Record<string, string> {
+  const page = PAGE_DIMENSIONS[theme.pageSize];
+  const scale = theme.fontSizeScale;
+  const pt = (value: number) => `${(value * scale).toFixed(2)}pt`;
+
+  return {
+    "--rd-body-font": fontStack(theme.fontFamily),
+    "--rd-heading-font": fontStack(theme.headingFontFamily),
+    "--rd-accent": theme.accentColor,
+    "--rd-text": theme.textColor,
+    "--rd-leading": String(theme.lineSpacing),
+    "--rd-margin": `${theme.marginSize}mm`,
+    "--rd-page-width": `${page.width}mm`,
+    "--rd-page-height": `${page.height}mm`,
+
+    "--rd-size-name": pt(BASE_SIZES.name),
+    "--rd-size-contact": pt(BASE_SIZES.contact),
+    "--rd-size-section": pt(BASE_SIZES.sectionTitle),
+    "--rd-size-primary": pt(BASE_SIZES.entryPrimary),
+    "--rd-size-secondary": pt(BASE_SIZES.entrySecondary),
+    "--rd-size-body": pt(BASE_SIZES.body),
+    "--rd-size-small": pt(BASE_SIZES.small),
+
+    "--rd-gap-section": `${(3.2 * theme.lineSpacing).toFixed(2)}mm`,
+    "--rd-gap-entry": `${(2.1 * theme.lineSpacing).toFixed(2)}mm`,
+  };
+}
+
+/**
+ * Produces the stylesheet for a resume document — everything that isn't a
+ * theme value, which `themeToCssVars` supplies per instance.
  *
  * Every rule is scoped under `.rd-root` and every class is `rd-`-prefixed so the
  * resume renders identically whether it sits inside the Tailwind-styled editor
@@ -47,8 +92,6 @@ const BASE_SIZES = {
  */
 export function themeToCss(theme: Theme, options: { fontFaces?: string } = {}): string {
   const page = PAGE_DIMENSIONS[theme.pageSize];
-  const scale = theme.fontSizeScale;
-  const pt = (value: number) => `${(value * scale).toFixed(2)}pt`;
 
   return `
 ${options.fontFaces ?? ""}
@@ -61,26 +104,6 @@ ${options.fontFaces ?? ""}
 }
 
 .rd-root {
-  --rd-body-font: ${fontStack(theme.fontFamily)};
-  --rd-heading-font: ${fontStack(theme.headingFontFamily)};
-  --rd-accent: ${theme.accentColor};
-  --rd-text: ${theme.textColor};
-  --rd-leading: ${theme.lineSpacing};
-  --rd-margin: ${theme.marginSize}mm;
-  --rd-page-width: ${page.width}mm;
-  --rd-page-height: ${page.height}mm;
-
-  --rd-size-name: ${pt(BASE_SIZES.name)};
-  --rd-size-contact: ${pt(BASE_SIZES.contact)};
-  --rd-size-section: ${pt(BASE_SIZES.sectionTitle)};
-  --rd-size-primary: ${pt(BASE_SIZES.entryPrimary)};
-  --rd-size-secondary: ${pt(BASE_SIZES.entrySecondary)};
-  --rd-size-body: ${pt(BASE_SIZES.body)};
-  --rd-size-small: ${pt(BASE_SIZES.small)};
-
-  --rd-gap-section: ${(3.2 * theme.lineSpacing).toFixed(2)}mm;
-  --rd-gap-entry: ${(2.1 * theme.lineSpacing).toFixed(2)}mm;
-
   font-family: var(--rd-body-font);
   font-size: var(--rd-size-body);
   line-height: var(--rd-leading);
@@ -175,7 +198,11 @@ ${options.fontFaces ?? ""}
 
 .rd-page {
   width: var(--rd-page-width);
-  min-height: var(--rd-page-height);
+  /* A fixed height, not a minimum. A sheet is a physical size: content that
+     outgrows one has to continue on the next, and the renderer splits it so
+     that it does. With min-height the sheet grew instead, which produced one
+     endless page rather than two normal ones. */
+  height: var(--rd-page-height);
   padding: var(--rd-margin);
   background: #ffffff;
   position: relative;
@@ -204,7 +231,27 @@ ${options.fontFaces ?? ""}
   .rd-canvas-host .rd-page {
     box-shadow: 0 1px 3px rgb(0 0 0 / 0.18), 0 12px 36px rgb(0 0 0 / 0.22);
     outline: 1px solid rgb(0 0 0 / 0.05);
+    /* Breaks are measured against the printed form, which omits placeholders
+       the editor shows for blank optional fields. A resume with those near a
+       break can run a line past the sheet on screen only — better to let it
+       show than to clip a line the user is editing. The PDF still clips. */
+    overflow: visible;
   }
+}
+
+/* Continuation sheets start flush against the top margin: on sheet one that
+   space belongs to the header, which is why the measuring pass folds the first
+   section's gap into the header height. A descendant selector rather than a
+   child one, because three of the templates wrap their sections in a themed
+   div (.rd-classic, .rd-minimal, .rd-creative) and Deedy nests them in columns. */
+.rd-page[data-page-index]:not([data-page-index="0"]) .rd-section:first-of-type {
+  margin-top: 0;
+}
+
+/* An entry whose heading rows stayed on the previous sheet: its bullets are all
+   that continue here, so they sit directly under the repeated section heading. */
+.rd-entry[data-continued] > .rd-bullets {
+  margin-top: 0;
 }
 
 /* Continuation pages don't repeat the name/contact header. Scoped to
@@ -213,6 +260,16 @@ ${options.fontFaces ?? ""}
 .rd-page[data-page-index]:not([data-page-index="0"]) .rd-header-divider,
 .rd-page[data-page-index]:not([data-page-index="0"]) .rd-band {
   display: none;
+}
+
+/* The measuring mirror (see canvas.tsx and the PDF export): the same document
+   rendered as one uninterrupted flow so every block can be measured at once.
+   The sheet keeps its real fixed height — that height is what the measurements
+   are compared against — and only stops clipping, because overflow hides
+   painting while leaving layout alone. Blocks past the bottom edge therefore
+   still report their true geometry, which is exactly what the packer needs. */
+.rd-measure-host .rd-page {
+  overflow: visible;
 }
 
 /* --- Header --- */
@@ -252,10 +309,18 @@ ${options.fontFaces ?? ""}
 
 /* --- Sections --- */
 
+/* Sheets are explicit elements with a fixed height, and the renderer decides
+   what goes on each — so nothing below asks the print engine to avoid breaking
+   inside a section or an entry. Those hints would fight the measured layout. */
+
 .rd-section {
   margin-top: var(--rd-gap-section);
-  /* Keeps a heading from being orphaned at the foot of a printed page. */
-  break-inside: avoid-page;
+}
+
+/* Title and rule travel together as one measurable block, so a heading can't be
+   left at the foot of a sheet with its first entry overleaf. */
+.rd-section-head {
+  display: block;
 }
 
 .rd-section-title {
@@ -265,7 +330,6 @@ ${options.fontFaces ?? ""}
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: var(--rd-accent);
-  break-after: avoid-page;
 }
 
 .rd-rule {
@@ -278,7 +342,6 @@ ${options.fontFaces ?? ""}
 
 .rd-entry {
   margin-top: var(--rd-gap-entry);
-  break-inside: avoid-page;
 }
 
 .rd-entry:first-of-type {

@@ -22,7 +22,19 @@ export function parseContent(value: unknown): ResumeContent {
   return resumeContentSchema.parse(value);
 }
 
-export function serializeTemplate(template: Template): TemplateDto {
+/**
+ * @param sampleOverride Sample content to show instead of the template's own —
+ * the selected profession's, when the gallery is filtered by one. Templates are
+ * shared across professions (the Classic layout is a curated pick for six), so
+ * the profession-specific document can't live on the template row and has to be
+ * substituted here.
+ *
+ * Ignored if it fails validation: a preview showing the general sample is a far
+ * better outcome than a 500 that empties the gallery.
+ */
+export function serializeTemplate(template: Template, sampleOverride?: unknown): TemplateDto {
+  const override = sampleOverride == null ? null : resumeContentSchema.safeParse(sampleOverride);
+
   return {
     id: template.id,
     name: template.name,
@@ -32,7 +44,7 @@ export function serializeTemplate(template: Template): TemplateDto {
     category: template.category,
     isPremium: template.isPremium,
     defaultTheme: parseTheme(template.defaultTheme),
-    sampleContent: parseContent(template.sampleContent),
+    sampleContent: override?.success ? override.data : parseContent(template.sampleContent),
   };
 }
 

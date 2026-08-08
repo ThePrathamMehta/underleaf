@@ -1,7 +1,8 @@
 import type { Theme } from "@repo/types";
 import { themeSchema, resumeContentSchema } from "@repo/types";
-import { prisma } from "./index.js";
+import { Prisma, prisma } from "./index.js";
 import { SAMPLE_CONTENT } from "./sample-content.js";
+import { SAMPLE_CONTENT_BY_PROFESSION } from "./samples/index.js";
 
 type TemplateSeed = {
   name: string;
@@ -452,6 +453,15 @@ async function main() {
   console.log(`\nSeeded ${ALL_TEMPLATES.length} templates.\n`);
 
   for (const [index, profession] of PROFESSIONS.entries()) {
+    // Validated here for the same reason template content is: a malformed
+    // sample should stop the seed, not reach the gallery and fail to render.
+    // A profession without one is allowed — it falls back to the template's.
+    const sample = SAMPLE_CONTENT_BY_PROFESSION[profession.slug];
+    // `DbNull`, not `null`: for a nullable Json column Prisma distinguishes a
+    // SQL NULL from the JSON value `null`, and only the former is what "this
+    // profession has no sample of its own" means.
+    const sampleContent = sample ? resumeContentSchema.parse(sample) : Prisma.DbNull;
+
     const row = await prisma.profession.upsert({
       where: { slug: profession.slug },
       create: {
@@ -460,12 +470,14 @@ async function main() {
         description: profession.description,
         iconKey: profession.iconKey,
         sortOrder: index,
+        sampleContent,
       },
       update: {
         name: profession.name,
         description: profession.description,
         iconKey: profession.iconKey,
         sortOrder: index,
+        sampleContent,
       },
     });
 
@@ -494,7 +506,8 @@ async function main() {
     }
 
     console.log(
-      `  seeded profession: ${profession.name} (${profession.templates.length} templates)`,
+      `  seeded profession: ${profession.name} (${profession.templates.length} templates` +
+        `${sampleContent ? ", own sample" : ""})`,
     );
   }
 

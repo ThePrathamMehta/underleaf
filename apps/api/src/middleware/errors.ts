@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { MulterError } from "multer";
 import { ZodError, type ZodSchema } from "zod";
 
 /** An error with an intended HTTP status, thrown by route handlers. */
@@ -77,6 +78,19 @@ export function errorHandler(error: unknown, _req: Request, res: Response, _next
 
   if (error instanceof ZodError) {
     res.status(400).json({ error: "Validation failed", details: zodDetails(error) });
+    return;
+  }
+
+  if (error instanceof MulterError) {
+    if (error.code === "LIMIT_FILE_SIZE") {
+      res.status(413).json({ error: "File too large. Maximum size is 15MB." });
+      return;
+    }
+    if (error.code === "LIMIT_UNEXPECTED_FILE") {
+      res.status(400).json({ error: "Unexpected file field" });
+      return;
+    }
+    res.status(400).json({ error: `Upload failed: ${error.message}` });
     return;
   }
 

@@ -38,10 +38,18 @@ templatesRouter.get(
         template: category ? { category } : undefined,
       },
       orderBy: { rank: "asc" },
-      include: { template: true },
+      // The profession is included for its sample content: every preview in a
+      // filtered gallery shows a resume written for that field rather than the
+      // template's general sample, so the reader can judge the layout against
+      // the document they'd actually be writing.
+      include: { template: true, profession: true },
     });
 
-    res.json({ templates: picks.map((pick) => serializeTemplate(pick.template)) });
+    res.json({
+      templates: picks.map((pick) =>
+        serializeTemplate(pick.template, pick.profession.sampleContent),
+      ),
+    });
   }),
 );
 

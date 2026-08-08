@@ -50,17 +50,27 @@ resumesRouter.post(
   "/",
   validateBody(createResumeBodySchema),
   asyncHandler<AuthedRequest>(async (req, res) => {
-    const { templateId, title, blank } = req.body;
+    const { templateId, title, blank, profession } = req.body;
 
     const template = await prisma.template.findFirst({
       where: { OR: [{ id: templateId }, { slug: templateId }] },
     });
     if (!template) throw notFound("Template");
 
+    // The profession the user was browsing, if any, decides which sample the
+    // resume starts from — the gallery previewed that one, so opening the editor
+    // on the template's general sample instead would be a bait and switch.
+    // An unknown slug is not an error: it just falls through to the template's.
+    const professionSample = profession
+      ? await prisma.profession
+          .findUnique({ where: { slug: profession }, select: { sampleContent: true } })
+          .then((row) => row?.sampleContent ?? null)
+      : null;
+
     // Seeded templates carry sample content so a new resume opens with something
     // to edit; fall back to a blank document if that sample is ever absent.
     // "Start from Blank" skips the sample entirely for a minimal scaffold.
-    const sample = resumeContentSchema.safeParse(template.sampleContent);
+    const sample = resumeContentSchema.safeParse(professionSample ?? template.sampleContent);
     const content = blank
       ? createBlankContent()
       : sample.success

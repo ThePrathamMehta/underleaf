@@ -1,15 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { ResumeContent, Theme } from "@repo/types";
-import { pageCount } from "@repo/types";
 import { ResumeDocument, ResumeEditingProvider, type FieldPath } from "@repo/ui/resume";
 import { PAGE_DIMENSIONS } from "@repo/ui/resume/styles";
+import {
+  forcedBreakIds,
+  measureArgs,
+  measureFlow,
+  packBlocks,
+  toSingleFlow,
+  type PageLayout,
+} from "@repo/ui/resume/paginate";
 
 const MM_TO_PX = 96 / 25.4;
 /** Screen gap between stacked page sheets, matching the CSS in themeToCss. */
 const PAGE_GAP_MM = 6;
+
+/** Root of the hidden mirror the pagination pass measures. */
+const MEASURE_ROOT = "[data-measure-root]";
 
 /**
  * How far left of the page the per-item actions sit, and how wide their column
@@ -31,6 +41,19 @@ const HOVER_CLEAR_MS = 260;
 type Anchor = { top: number; left: number; width: number; height: number };
 
 /**
+ * Scrolling, exposed to the editor page.
+ *
+ * The scroll container and the sheets both live inside the canvas, so it is the
+ * only place that can move them. Going through here also keeps every lookup
+ * scoped to the visible document — a bare `document.querySelector` would now
+ * also match the measuring mirror below.
+ */
+export type CanvasHandle = {
+  scrollToPage: (pageIndex: number) => void;
+  scrollToSection: (sectionId: string) => void;
+};
+
+/**
  * The document canvas.
  *
  * The page keeps its true mm geometry and only the wrapper is scaled, so zoom
@@ -44,38 +67,133 @@ export function EditorCanvas({
   theme,
   zoom,
   focusedSectionId,
+  handleRef,
   onFieldChange,
   onFieldCommit,
   onFocusSection,
   onAddItem,
   onRemoveItem,
   onAddBullet,
+  onPagesChange,
+  onActivePageChange,
 }: {
   templateSlug: string;
   content: ResumeContent;
   theme: Theme;
   zoom: number;
   focusedSectionId: string | null;
+  /** Filled with the scrolling handle above while the canvas is mounted. */
+  handleRef?: React.RefObject<CanvasHandle | null>;
   onFieldChange: (path: FieldPath, value: string) => void;
   onFieldCommit: () => void;
   onFocusSection: (id: string | null) => void;
   onAddItem: (sectionId: string) => void;
   onRemoveItem: (sectionId: string, itemId: string) => void;
   onAddBullet: (sectionId: string, itemId: string) => void;
+  /** How many sheets the measured layout produced. */
+  onPagesChange?: (pageCount: number) => void;
+  /** Which sheet currently fills most of the viewport. */
+  onActivePageChange?: (pageIndex: number) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const [sectionAnchor, setSectionAnchor] = useState<Anchor | null>(null);
   const [hoveredItem, setHoveredItem] = useState<{ id: string; anchor: Anchor } | null>(null);
   const hoverClearRef = useRef<number | null>(null);
+  const [layout, setLayout] = useState<PageLayout[] | null>(null);
 
   const page = PAGE_DIMENSIONS[theme.pageSize];
   const pageWidthPx = page.width * MM_TO_PX;
   const pageHeightPx = page.height * MM_TO_PX;
   // Reserve height for every page plus the on-screen gaps between them; the
   // transform doesn't affect flow, so the wrapper must account for the stack.
-  const pages = pageCount(content);
+  const pages = layout?.length ?? 1;
   const stackHeightPx = pages * pageHeightPx + (pages - 1) * PAGE_GAP_MM * MM_TO_PX;
+
+  // --- Pagination ---
+
+  // The mirror renders one uninterrupted flow; manual breaks come back as
+  // forced breaks during packing, landing in the same place.
+  const measureContent = useMemo(() => toSingleFlow(content), [content]);
+  const forcedBreaks = useMemo(() => forcedBreakIds(content), [content]);
+
+  const remeasure = useCallback(() => {
+    const { blocks, usableHeight, headerHeight } = measureFlow(measureArgs(MEASURE_ROOT));
+    if (usableHeight <= 0) return;
+    setLayout(packBlocks({ blocks, usableHeight, headerHeight, forcedBreaks }));
+  }, [forcedBreaks]);
+
+  // Layout effect, not effect: this runs before paint, so the sheets are never
+  // shown with a stale break and then reflowed in front of the user.
+  useLayoutEffect(() => {
+    remeasure();
+  }, [remeasure, measureContent, templateSlug, theme]);
+
+  // Fonts settle asynchronously, and every height here depends on their
+  // metrics — measuring against a fallback face breaks in the wrong place.
+  useEffect(() => {
+    let cancelled = false;
+    void document.fonts.ready.then(() => {
+      if (!cancelled) remeasure();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [remeasure, measureContent, templateSlug, theme]);
+
+  // The rail is a sibling, so it learns the sheet count from here — it's a
+  // property of the measured layout, and nothing outside this component can
+  // derive it.
+  useEffect(() => {
+    onPagesChange?.(pages);
+  }, [onPagesChange, pages]);
+
+  // --- Navigation ---
+
+  /** The nth sheet of the *visible* document; never the mirror's. */
+  const sheetAt = useCallback(
+    (index: number) => pageRef.current?.querySelectorAll<HTMLElement>(".rd-page")[index] ?? null,
+    [],
+  );
+
+  useEffect(() => {
+    if (!handleRef) return;
+    handleRef.current = {
+      scrollToPage: (index) => sheetAt(index)?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      scrollToSection: (sectionId) =>
+        pageRef.current
+          ?.querySelector(`[data-section-id="${sectionId}"]`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+    };
+    return () => {
+      handleRef.current = null;
+    };
+  }, [handleRef, sheetAt]);
+
+  // Which sheet the rail should highlight: whichever one covers the middle of
+  // the viewport, so a sheet only becomes "current" once it genuinely dominates
+  // the view rather than the instant its top edge appears.
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container || !onActivePageChange) return;
+
+    function update() {
+      const box = container!.getBoundingClientRect();
+      const middle = box.top + box.height / 2;
+      const sheets = pageRef.current?.querySelectorAll<HTMLElement>(".rd-page");
+      if (!sheets?.length) return;
+
+      let active = 0;
+      sheets.forEach((sheet, index) => {
+        if (sheet.getBoundingClientRect().top <= middle) active = index;
+      });
+      onActivePageChange!(active);
+    }
+
+    update();
+    container.addEventListener("scroll", update, { passive: true });
+    return () => container.removeEventListener("scroll", update);
+  }, [onActivePageChange, pages, zoom]);
 
   /** Converts a client rect into coordinates within the scrolling container. */
   const toLocal = useCallback((rect: DOMRect): Anchor => {
@@ -105,8 +223,10 @@ export function EditorCanvas({
 
   useEffect(() => cancelHoverClear, [cancelHoverClear]);
 
-  // Re-measure whenever the focused section, content or zoom changes — all three
-  // can move the anchor, and a stale overlay points at the wrong place.
+  // Re-measure whenever the focused section, content, layout or zoom changes —
+  // all of them can move the anchor, and a stale overlay points at the wrong
+  // place. `layout` matters because repagination moves a section bodily to
+  // another sheet.
   useLayoutEffect(() => {
     if (!focusedSectionId || !scrollRef.current) {
       setSectionAnchor(null);
@@ -115,7 +235,7 @@ export function EditorCanvas({
 
     const element = pageRef.current?.querySelector(`[data-section-id="${focusedSectionId}"]`);
     setSectionAnchor(element ? toLocal(element.getBoundingClientRect()) : null);
-  }, [focusedSectionId, content, zoom, theme, toLocal]);
+  }, [focusedSectionId, content, layout, zoom, theme, toLocal]);
 
   // Clicking away from the page clears the selection.
   useEffect(() => {
@@ -201,9 +321,37 @@ export function EditorCanvas({
             className="rd-canvas-host"
           >
             <ResumeEditingProvider value={{ onFieldChange, onFieldCommit }}>
-              <ResumeDocument templateSlug={templateSlug} content={content} theme={theme} />
+              <ResumeDocument
+                templateSlug={templateSlug}
+                content={content}
+                theme={theme}
+                layout={layout ?? undefined}
+              />
             </ResumeEditingProvider>
           </div>
+        </div>
+      </div>
+
+      {/*
+        The measuring mirror: the same document as one continuous flow, read by
+        the pagination pass and never shown.
+
+        Outside the zoom transform on purpose — a scaled element reports scaled
+        rects, and the packer works in real page units.
+
+        Rendered without ResumeEditingProvider, i.e. in print form. Edit mode
+        adds placeholder fields for blank optionals that the PDF omits, so
+        measuring the edit form would break the two apart. This way the PDF is
+        always exact and the editor can be a line optimistic near a break —
+        which is why the canvas sheet lets content overflow rather than clip it.
+
+        A zero-size clipping box rather than `visibility: hidden`: the mirror
+        must not widen the scroll area. Clipping doesn't affect layout, so the
+        rects inside are still true.
+      */}
+      <div aria-hidden className="pointer-events-none absolute left-0 top-0 h-0 w-0 overflow-hidden">
+        <div data-measure-root className="rd-measure-host" style={{ width: pageWidthPx }}>
+          <ResumeDocument templateSlug={templateSlug} content={measureContent} theme={theme} />
         </div>
       </div>
 
@@ -233,7 +381,11 @@ export function EditorCanvas({
               <button
                 type="button"
                 onClick={() => onAddItem(focusedSection.id)}
-                className="pointer-events-auto absolute -bottom-3.5 left-0 inline-flex h-7 items-center gap-1.5 rounded-full bg-paper-raised px-2.5 text-[0.75rem] text-ink-muted shadow-card ring-1 ring-rule transition-colors hover:text-accent"
+                // `top-full` rather than a negative `bottom`: hanging the button
+                // half over the section's bottom edge covered the last line, so
+                // the bullet you were typing was hidden behind it. The margin
+                // clears the focus ring, which itself extends 6px past the box.
+                className="pointer-events-auto absolute left-0 top-full mt-2.5 inline-flex h-7 items-center gap-1.5 rounded-full bg-paper-raised px-2.5 text-[0.75rem] text-ink-muted shadow-card ring-1 ring-rule transition-colors hover:text-accent"
               >
                 <PlusIcon /> Add entry
               </button>

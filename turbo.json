@@ -9,6 +9,7 @@
   // (config.ts treats a missing client id/secret as "not configured").
   "globalPassThroughEnv": [
     "DATABASE_URL",
+    "DIRECT_DATABASE_URL",
     "JWT_SECRET",
     "PORT",
     "WEB_ORIGIN",
@@ -18,7 +19,9 @@
     "GOOGLE_CLIENT_ID",
     "GOOGLE_CLIENT_SECRET",
     "GITHUB_CLIENT_ID",
-    "GITHUB_CLIENT_SECRET"
+    "GITHUB_CLIENT_SECRET",
+    "STORAGE_DIR",
+    "MAX_UPLOAD_BYTES"
   ],
   "tasks": {
     "db:generate": {

@@ -1,6 +1,7 @@
 "use client";
 
 import type { PublicUser } from "@repo/types";
+import Link from "next/link";
 import { useAuth } from "../../lib/auth-context";
 import { FieldLabel, Popover } from "./controls";
 
@@ -54,17 +55,13 @@ export function UserMenu() {
 
           <div className="my-1 h-px bg-rule" aria-hidden />
 
-          {/* No user-settings surface exists yet; this is a signpost, not a link. */}
-          <button
-            type="button"
-            disabled
-            className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm text-ink-muted opacity-50"
+          <Link
+            href="/settings"
+            onClick={close}
+            className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm text-ink-muted transition-colors hover:bg-paper-sunken hover:text-ink"
           >
             Account settings
-            <span className="font-mono text-[0.5625rem] uppercase tracking-[0.12em] text-ink-faint">
-              Soon
-            </span>
-          </button>
+          </Link>
 
           <button
             type="button"
