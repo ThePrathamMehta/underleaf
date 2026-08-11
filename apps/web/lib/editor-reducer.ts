@@ -34,6 +34,14 @@ export type EditorAction =
   // real intent, and the packer honours it.
   | { type: "addPage" }
   | { type: "togglePageBreak"; sectionId: string }
+  /**
+   * A document computed by the AI assistant, replacing content and theme wholesale.
+   *
+   * Wholesale rather than as a patch because the server already validated the
+   * *result* against `resumeContentSchema` — an assignment cannot half-apply,
+   * where a patch replayed against a document that drifted can.
+   */
+  | { type: "applyAiEdit"; content: ResumeContent; theme: Theme }
   | { type: "commit" }
   | { type: "undo" }
   | { type: "redo" }
@@ -45,9 +53,15 @@ const HISTORY_LIMIT = 60;
  * Actions that describe one continuous gesture (typing a character) shouldn't
  * each become an undo step. Those set `coalesce`, and the caller marks a
  * boundary with `commit` — on blur, or before a structural change.
+ *
+ * `applyAiEdit` coalesces for the same reason typing does, and it matters more
+ * here: one assistant turn can rewrite three sections and emit a document after
+ * each, and a user who asked for one thing should undo one thing. The chat panel
+ * dispatches `commit` before a turn's first edit, so the pre-turn document lands
+ * on `past` exactly once and every later edit in the turn folds into it.
  */
 function coalesces(action: EditorAction): boolean {
-  return action.type === "setField" || action.type === "setTitle";
+  return action.type === "setField" || action.type === "setTitle" || action.type === "applyAiEdit";
 }
 
 /** Writes a value at a JSON path, cloning only the nodes along the way. */
@@ -195,6 +209,12 @@ function reduceDoc(doc: EditorDocument, action: EditorAction): EditorDocument {
           pageBreakBefore: !section.pageBreakBefore,
         })),
       };
+
+    case "applyAiEdit":
+      // The title is left alone deliberately: the assistant has no tool for it,
+      // and overwriting what the user named their document would be a change
+      // nobody asked for.
+      return { ...doc, content: action.content, theme: action.theme };
 
     default:
       return doc;

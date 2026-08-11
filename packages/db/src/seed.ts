@@ -512,6 +512,45 @@ async function main() {
   }
 
   console.log(`\nSeeded ${PROFESSIONS.length} professions.`);
+
+  await promoteAdmins();
+}
+
+/**
+ * Promotes the accounts named in `ADMIN_EMAILS` (comma-separated) to `admin`.
+ *
+ * There is no self-service path to the admin role and deliberately so — it gates
+ * which provider and model the whole deployment calls, and what it costs. The
+ * env var is the deploy-time decision; the seed is what applies it.
+ *
+ * Only ever promotes. Demotion is left to whoever runs the deployment, because a
+ * seed that silently stripped a role when the variable was momentarily unset
+ * could lock every admin out of the settings that would let them back in.
+ */
+async function promoteAdmins(): Promise<void> {
+  const emails = (process.env.ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter((email) => email.length > 0);
+
+  if (emails.length === 0) {
+    console.log("\nADMIN_EMAILS is unset — no admins promoted.");
+    return;
+  }
+
+  // Accounts are created by signing up, so an email listed here before its owner
+  // has registered simply matches nothing. Reporting the count rather than
+  // failing keeps `db:seed` runnable on a fresh database.
+  const { count } = await prisma.user.updateMany({
+    where: { email: { in: emails }, role: { not: "admin" } },
+    data: { role: "admin" },
+  });
+
+  const existing = await prisma.user.count({ where: { email: { in: emails } } });
+  console.log(
+    `\nPromoted ${count} admin${count === 1 ? "" : "s"} ` +
+      `(${existing}/${emails.length} of the listed emails have accounts).`,
+  );
 }
 
 main()

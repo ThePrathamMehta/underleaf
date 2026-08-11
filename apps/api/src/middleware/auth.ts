@@ -1,7 +1,8 @@
 import type { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
+import { prisma } from "@repo/db";
 import { config } from "../config.js";
-import { unauthorized } from "./errors.js";
+import { forbidden, unauthorized } from "./errors.js";
 
 export type AuthedRequest = Request & { userId: string };
 
@@ -66,4 +67,37 @@ export function optionalAuth(req: Request): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Rejects the request unless the authenticated user is an admin.
+ *
+ * The role is read from the database on every call rather than carried in the
+ * JWT. Tokens last seven days, so a role baked into one would keep working for
+ * a week after it was revoked — and the thing it unlocks is which model the
+ * whole deployment calls and what that costs. A query per admin request is a
+ * cheap price for revocation taking effect immediately.
+ *
+ * Runs after `requireAuth`, which is what puts `userId` on the request.
+ */
+export function requireAdmin(req: Request, _res: Response, next: NextFunction): void {
+  const { userId } = req as AuthedRequest;
+  if (!userId) {
+    next(unauthorized());
+    return;
+  }
+
+  prisma.user
+    .findUnique({ where: { id: userId }, select: { role: true } })
+    .then((user) => {
+      if (user?.role !== "admin") {
+        // 403 rather than 404: the route's existence isn't a secret, and telling
+        // a signed-in non-admin "not allowed" is more useful than pretending the
+        // page isn't there when the nav might still link to it.
+        next(forbidden("Admin access required"));
+        return;
+      }
+      next();
+    })
+    .catch(next);
 }

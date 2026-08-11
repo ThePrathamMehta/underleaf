@@ -41,17 +41,26 @@ export const metadata: Metadata = {
 const NO_FLASH_SCRIPT = `(function(){try{var k="underleaf-theme";var s=localStorage.getItem(k);var d=s?s==="dark":(s==="light"?false:matchMedia("(prefers-color-scheme:dark)").matches);var e=document.documentElement;e.classList.toggle("dark",d);e.style.colorScheme=d?"dark":"light";}catch(e){}})();`;
 
 /**
- * Decides whether the first-run splash plays, before anything paints.
+ * Decides whether the splash plays, before anything paints.
  *
- * Runs ahead of the splash markup in the document, so a returning visitor's
- * page is never covered for even one frame — the attribute is simply never
- * set and the CSS keeps the overlay at display:none. Marking it seen up front
- * (rather than when the animation ends) means a reload mid-animation doesn't
- * replay it. localStorage rather than sessionStorage: the ask was once only,
- * not once per tab. The timeout clears the attribute just after the CSS fade
- * ends, which removes the overlay from the layout and unlocks scrolling.
+ * It plays on every load of the home page and nowhere else. The path check is
+ * what scopes it: this script is in the root layout, so it runs for every
+ * document, and `/` is the only route the overlay is wanted on — landing
+ * straight in the editor or the dashboard should never be held behind an
+ * animation. There is no "seen" flag, because a title card that plays once
+ * ever is invisible to everyone who has already visited.
+ *
+ * Running ahead of the splash markup in the document is the point: on a
+ * non-home route the attribute is simply never set, so the CSS keeps the
+ * overlay at display:none and the page is never covered for even one frame.
+ * The timeout clears the attribute just after the CSS fade ends, which removes
+ * the overlay from the layout and unlocks scrolling.
+ *
+ * Only a document load reaches this, so an in-app click through to `/` does not
+ * replay it — the splash belongs to opening the app, not to moving around
+ * inside it.
  */
-const SPLASH_SCRIPT = `(function(){try{var k="underleaf-splash-seen";if(localStorage.getItem(k))return;localStorage.setItem(k,"1");if(matchMedia("(prefers-reduced-motion: reduce)").matches)return;var e=document.documentElement;e.setAttribute("data-splash","run");setTimeout(function(){e.removeAttribute("data-splash")},2380);}catch(e){}})();`;
+const SPLASH_SCRIPT = `(function(){try{if(location.pathname!=="/")return;if(matchMedia("(prefers-reduced-motion: reduce)").matches)return;var e=document.documentElement;e.setAttribute("data-splash","run");setTimeout(function(){e.removeAttribute("data-splash")},2380);}catch(e){}})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

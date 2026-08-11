@@ -1,17 +1,17 @@
 import { LeafMark } from "./logo";
 
 /**
- * First-run splash.
+ * The home page splash.
  *
  * Deliberately not a React-controlled overlay. The markup below is static and
  * server-rendered on every page; whether it's *visible* is decided by the
  * inline script in app/layout.tsx, which sets data-splash on <html> before the
  * first paint. That ordering is the whole point:
  *
- *   - a first-time visitor sees the splash in the very first painted frame,
- *     with no flash of the page underneath while React hydrates;
- *   - a returning visitor never sees a single frame of it, because the CSS
- *     keeps it at display:none without the attribute;
+ *   - someone opening the home page sees the splash in the very first painted
+ *     frame, with no flash of the page underneath while React hydrates;
+ *   - every other route never shows a single frame of it, because the CSS keeps
+ *     it at display:none without the attribute;
  *   - React never adds or removes the node, so there's no hydration mismatch.
  *
  * The animation itself is CSS (see the .splash rules in globals.css) and runs

@@ -1,0 +1,29 @@
+{
+  "name": "@repo/ai",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "lint": "eslint . --max-warnings 0",
+    "test": "bun test",
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "@repo/db": "*",
+    "@repo/types": "*",
+    "openai": "^6.9.0",
+    "zod": "^3.24.1",
+    "zod-to-json-schema": "^3.24.6"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "*",
+    "@repo/typescript-config": "*",
+    "@types/bun": "^1.3.14",
+    "typescript": "5.9.2"
+  }
+}

@@ -1,5 +1,13 @@
 import path from "node:path";
 
+/**
+ * Re-exported so callers read secret resolution as part of this app's config,
+ * which is where it belongs conceptually. The implementation lives in
+ * `@repo/ai` next to the code that consumes it — and, importantly, in one place:
+ * an allowlist with two copies is an allowlist with a hole.
+ */
+export { isAllowedSecretRef, listSecretRefs, resolveSecretRef } from "@repo/ai";
+
 const isProduction = process.env.NODE_ENV === "production";
 
 function required(name: string, devFallback?: string): string {
@@ -69,6 +77,14 @@ export const config = {
    * and runs in-process, so this is a load-bearing limit, not just a UX nicety.
    */
   maxUploadBytes: Number(process.env.MAX_UPLOAD_BYTES ?? 15 * 1024 * 1024),
+  /**
+   * Cap on page count, checked as soon as the document opens and before any page
+   * is rasterized. Size alone doesn't bound the work: a 2MB text-heavy report can
+   * carry far more pages — and so more rendering, more rows, and a longer wait —
+   * than a 14MB file that is three pages of photographs. This is the limit that
+   * actually tracks the cost of a parse.
+   */
+  maxPdfPages: Number(process.env.MAX_PDF_PAGES ?? 30),
 } as const;
 
 if (isProduction && !process.env.DATABASE_URL) {

@@ -32,6 +32,7 @@ function toPublicUser(user: {
   createdAt: Date;
   passwordHash: string | null;
   oauthProvider: string | null;
+  role: string;
 }): PublicUser {
   return {
     id: user.id,
@@ -42,6 +43,9 @@ function toPublicUser(user: {
     // settings page needs in order to say "change" instead of "set".
     hasPassword: user.passwordHash !== null,
     oauthProvider: user.oauthProvider,
+    // Only ever a rendering hint — every admin route re-reads the role from the
+    // database, so a client that lies about this gains nothing.
+    role: user.role,
   };
 }
 

@@ -56,4 +56,11 @@ export type {
   PdfDocument,
   PdfPage,
   PdfTextRun,
+  AiProviderConfig,
+  AiUsageLog,
+  ChatSession,
+  ChatMessage,
+  AtsScoreResult,
+  JdComparison,
+  CoverLetter,
 } from "@prisma/client";

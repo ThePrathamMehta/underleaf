@@ -7,6 +7,7 @@
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
     "smoke": "bun run scripts/smoke.ts",
+    "smoke:ai": "bun run scripts/smoke-ai.ts",
     "browsers:install": "bunx puppeteer browsers install chrome",
     "lint": "eslint . --max-warnings 0",
     "check-types": "tsc --noEmit"
@@ -14,7 +15,9 @@
   "dependencies": {
     "@napi-rs/canvas": "^1.0.3",
     "@pdf-lib/fontkit": "^1.1.1",
+    "@repo/ai": "*",
     "@repo/db": "*",
+    "@repo/scoring": "*",
     "@repo/types": "*",
     "@repo/ui": "*",
     "bcryptjs": "^2.4.3",

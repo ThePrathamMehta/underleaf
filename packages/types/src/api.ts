@@ -34,6 +34,13 @@ export const publicUserSchema = z.object({
   hasPassword: z.boolean(),
   /** `"google"`, `"github"`, or null for a password-only account. */
   oauthProvider: z.string().nullable(),
+  /**
+   * `"user"` or `"admin"`. Present so the web app can decide whether to show the
+   * AI settings link at all — the API still checks the role from the database on
+   * every admin request, because a value the client holds is a hint about what
+   * to render, never an authorization decision.
+   */
+  role: z.string(),
 });
 
 export type PublicUser = z.infer<typeof publicUserSchema>;

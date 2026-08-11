@@ -42,7 +42,8 @@ export type ParseJobResult =
   | { ok: false; code: ParseFailureCode; message: string };
 
 /**
- * `NO_TEXT_LAYER` and `UNREADABLE` are verdicts about the file and are safe to
- * show the user as-is; `INTERNAL` is ours and is the only one worth retrying.
+ * `NO_TEXT_LAYER`, `UNREADABLE` and `TOO_MANY_PAGES` are verdicts about the file
+ * and are safe to show the user as-is; `INTERNAL` is ours and is the only one
+ * worth retrying.
  */
-export type ParseFailureCode = "NO_TEXT_LAYER" | "UNREADABLE" | "INTERNAL";
+export type ParseFailureCode = "NO_TEXT_LAYER" | "UNREADABLE" | "TOO_MANY_PAGES" | "INTERNAL";

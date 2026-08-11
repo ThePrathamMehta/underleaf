@@ -284,10 +284,10 @@
   }
 }
 
-/* The first-run splash. Static server-rendered markup; the inline script in
+/* The home page splash. Static server-rendered markup; the inline script in
    app/layout.tsx decides whether it runs by setting data-splash on <html>
-   before first paint, so a repeat visitor never sees a frame of it and React
-   never has to mutate the node. Inert without that attribute. */
+   before first paint, so any route other than `/` never sees a frame of it and
+   React never has to mutate the node. Inert without that attribute. */
 .splash {
   display: none;
 }

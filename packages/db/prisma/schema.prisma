@@ -19,13 +19,25 @@ model User {
   name         String
   createdAt    DateTime @default(now())
 
+  /// `user` or `admin`. v1–v3 had no role concept; v4 introduces one solely to
+  /// gate the AI provider settings, which are an org-wide deployment concern
+  /// rather than a per-user preference.
+  ///
+  /// A String rather than an enum to keep migrations cheap: adding a role later
+  /// shouldn't require an ALTER TYPE, and the set of values is validated in
+  /// @repo/types where every other domain value already is.
+  role String @default("user")
+
   // OAuth identity. Null for password-only accounts. The pair is unique so a
   // provider account maps to exactly one user.
   oauthProvider String?
   oauthId       String?
 
-  resumes Resume[]
-  pdfs    PdfDocument[]
+  resumes   Resume[]
+  pdfs      PdfDocument[]
+  aiUsage   AiUsageLog[]
+  chats     ChatSession[]
+  coverLetters CoverLetter[]
 
   @@unique([oauthProvider, oauthId])
 }
@@ -114,6 +126,11 @@ model Resume {
 
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   template Template @relation(fields: [templateId], references: [id])
+
+  chats         ChatSession[]
+  atsScores     AtsScoreResult[]
+  jdComparisons JdComparison[]
+  coverLetters  CoverLetter[]
 
   @@index([userId, updatedAt])
 }
@@ -226,4 +243,195 @@ model PdfTextRun {
   page PdfPage @relation(fields: [pdfPageId], references: [id], onDelete: Cascade)
 
   @@index([pdfPageId])
+}
+
+// --- AI (v4) ---
+
+/// Which provider and model answer a given kind of request.
+///
+/// Scoped by `purpose` rather than being a single global setting, because the
+/// four v4 features have genuinely different cost profiles: the chat assistant
+/// justifies a strong model, ATS scoring runs often enough that a cheap one is
+/// the right call. One row per purpose lets an admin make that trade without
+/// forcing the same choice everywhere.
+model AiProviderConfig {
+  id String @id @default(cuid())
+  /// `openai` | `anthropic` | `other`. `other` speaks the OpenAI chat
+  /// completions format against a configurable base URL, which is what makes
+  /// self-hosted gateways reachable without an adapter each.
+  provider  String
+  modelName String
+  /// The NAME of an environment variable holding the key — never a key.
+  ///
+  /// This is the load-bearing half of "no raw API key in the database". The name
+  /// is resolved at call time through an allowlist in the API's config, so an
+  /// admin cannot point this at JWT_SECRET and read it back through the config
+  /// endpoint. See `resolveSecretRef` in apps/api/src/config.ts.
+  apiKeySecretRef String
+  /// `chat` | `ats` | `jdMatch` | `coverLetter` | `all`. `all` is the fallback
+  /// used when no row targets a purpose specifically.
+  purpose String
+  /// Only one row per purpose should be active; the registry takes the most
+  /// recently updated active row, so flipping this is how an admin switches
+  /// models without a redeploy.
+  isActive  Boolean  @default(true)
+  /// Optional override for `other`, and for pointing a first-party provider at
+  /// a proxy. Null means the provider's own default endpoint.
+  baseUrl   String?
+  updatedAt DateTime @updatedAt
+
+  @@index([purpose, isActive, updatedAt])
+}
+
+/// One row per provider call, for cost tracking.
+///
+/// Records what a call cost, never what it said: no prompt, no completion, no
+/// resume content. A usage table is the wrong place to accumulate a copy of
+/// every document a user has ever edited, and keeping it metadata-only means it
+/// needs no special handling on account deletion beyond the cascade.
+model AiUsageLog {
+  id           String   @id @default(cuid())
+  userId       String?
+  provider     String
+  modelName    String
+  purpose      String
+  promptTokens Int      @default(0)
+  outputTokens Int      @default(0)
+  /// Round-trip wall time in milliseconds, including retries.
+  latencyMs    Int
+  /// Null on success; otherwise the AiError code that ended the call, so a
+  /// spike in failures is visible without correlating against server logs.
+  errorCode    String?
+  createdAt    DateTime @default(now())
+
+  /// Nullable and SetNull rather than Cascade: deleting an account shouldn't
+  /// silently rewrite the spend history the log exists to record.
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+}
+
+// --- Feature 1: chat assistant ---
+
+/// One conversation about one resume.
+///
+/// Unique on `resumeId`: the editor shows a single thread per document, and
+/// `GET /resumes/:id/chat` restores "the" conversation on reopen. Allowing
+/// several would mean a session picker nobody asked for, and the model has no
+/// way to choose between them.
+model ChatSession {
+  id        String   @id @default(cuid())
+  resumeId  String   @unique
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  resume   Resume        @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@index([userId, updatedAt])
+}
+
+/// One turn in a conversation.
+///
+/// `toolCalls` records what the assistant *asked* to change, not the resulting
+/// document: the resume itself is the source of truth for its own content, and
+/// storing a second copy per turn would let the two disagree after an undo.
+model ChatMessage {
+  id        String @id @default(cuid())
+  sessionId String
+  /// `user` | `assistant` | `system`.
+  role      String
+  content   String
+  /// Array of `{ name, arguments, ok, error? }` — null for plain replies.
+  toolCalls Json?
+  createdAt DateTime @default(now())
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+}
+
+// --- Feature 2: ATS scoring ---
+
+/// One scoring run, kept rather than overwritten.
+///
+/// History is the feature, not a side effect: a score is only motivating if the
+/// user can watch it move after they act on an issue, and a single mutable row
+/// would make "it went from 61 to 78" unrepresentable.
+model AtsScoreResult {
+  id       String @id @default(cuid())
+  resumeId String
+  /// 0–100.
+  overallScore Int
+  /// `{ keywords, formatting, impact, completeness }`, each 0–100.
+  categoryScores Json
+  /// Array of `{ id, severity, category, message, fix, sectionRef }`.
+  /// `sectionRef` is a section id in the resume's own content, which is what
+  /// makes an issue clickable rather than generic advice.
+  issues Json
+  /// Whether the AI half of the hybrid actually ran. False means the provider
+  /// was unreachable and this is the rule-based score alone — surfaced in the
+  /// panel, because silently scoring on half the checks would be misleading.
+  aiAssisted Boolean @default(false)
+  createdAt  DateTime @default(now())
+
+  resume Resume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@index([resumeId, createdAt])
+}
+
+// --- Feature 3: JD match ---
+
+model JdComparison {
+  id       String @id @default(cuid())
+  resumeId String
+  jobDescriptionText String
+  /// 0–100.
+  matchScore Int
+  /// Arrays of `{ term, weight, evidence? }`.
+  matchedKeywords Json
+  missingKeywords Json
+  /// Array of `{ id, message, sectionRef, instruction }`. `instruction` is the
+  /// text handed to the chat assistant by "Apply with AI", written server-side
+  /// so the hand-off can't be steered from the browser.
+  suggestions Json
+  createdAt   DateTime @default(now())
+
+  resume Resume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@index([resumeId, createdAt])
+}
+
+// --- Feature 4: cover letters ---
+
+/// A generated, then hand-editable, letter.
+///
+/// Carries `userId` as well as `resumeId` because `PATCH /cover-letters/:id` and
+/// the export route are addressed by letter id rather than nested under the
+/// resume — without it, every one of those would need a join to answer "is this
+/// yours", and the ownership filter belongs in the WHERE clause.
+model CoverLetter {
+  id       String @id @default(cuid())
+  resumeId String
+  userId   String
+  /// The JD it was tailored to, if any. Copied rather than referenced, so
+  /// deleting a JdComparison doesn't strand a letter with no context.
+  jobDescriptionText String?
+  /// The letter body as plain text with blank-line paragraph breaks. Not the
+  /// block-editor's structured content: a letter is prose, and the spec is
+  /// explicit that it shouldn't inherit that infrastructure.
+  content String
+  /// `formal` | `friendly` | `concise`.
+  tone      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  resume Resume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
+  @@index([resumeId, updatedAt])
 }

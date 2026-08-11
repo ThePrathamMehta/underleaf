@@ -14,6 +14,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { config } from "../config";
 import { RESULT_SENTINEL, type ParseJob, type ParseJobResult } from "./pdf-parse-protocol";
 
 const WORKER_PATH = fileURLToPath(new URL("./pdf-parse-worker.ts", import.meta.url));
@@ -21,8 +22,15 @@ const WORKER_PATH = fileURLToPath(new URL("./pdf-parse-worker.ts", import.meta.u
 /** The app root, so the child resolves `.storage` and `.env` exactly as we do. */
 const API_ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
 
-/** Generous: a dense 10-page PDF rasterizes in a few seconds on a slow machine. */
-const TIMEOUT_MS = 90_000;
+/**
+ * Derived from the page cap rather than fixed, because the two are the same
+ * quantity seen from different ends: the cap bounds how many pages can arrive,
+ * and this bounds how long rasterizing them may take. A flat 90s was sized when
+ * nothing bounded page count, and would have started killing legitimate parses
+ * the moment a document ran long. Six seconds a page is well past what a dense
+ * page needs on a slow machine, with a floor for very small caps.
+ */
+const TIMEOUT_MS = Math.max(90_000, config.maxPdfPages * 6_000);
 
 export async function parsePdfIsolated(job: ParseJob): Promise<ParseJobResult> {
   const first = await spawnWorker(job);

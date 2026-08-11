@@ -105,6 +105,46 @@ async function acquireSlot(): Promise<() => void> {
   };
 }
 
+// --- Shared primitives for other documents ---
+
+/**
+ * The theme's `@font-face` blocks with the bytes inlined.
+ *
+ * Exported because the cover letter is a different document that should print in
+ * the same typeface as the resume it accompanies — and the font cache is read
+ * once, at boot, here.
+ */
+export function inlineFontFaces(theme: Theme): string {
+  return fontFacesFromBase64(theme, (file) => fontCache.get(file));
+}
+
+/**
+ * Prints an arbitrary HTML document.
+ *
+ * The cover letter is prose with a `@page` rule, not a measured multi-sheet
+ * layout, so it needs none of the pagination passes below — but it does need the
+ * same browser singleton, the same concurrency cap and the same font-loading
+ * wait. Sharing those is the whole point of this being here rather than a second
+ * Puppeteer call site with its own lifecycle to leak.
+ */
+export async function exportHtmlPdf(html: string): Promise<Uint8Array> {
+  const release = await acquireSlot();
+  let page: Awaited<ReturnType<Browser["newPage"]>> | undefined;
+
+  try {
+    const browser = await getBrowser();
+    page = await browser.newPage();
+    await page.setViewport({ width: 1200, height: 1600 });
+    await page.setContent(html, { waitUntil: "load" });
+    await page.evaluate(() => document.fonts.ready);
+
+    return await page.pdf({ preferCSSPageSize: true, printBackground: true });
+  } finally {
+    await page?.close().catch(() => {});
+    release();
+  }
+}
+
 // --- Export ---
 
 export type RenderResumeArgs = {

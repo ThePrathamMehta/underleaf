@@ -8,7 +8,12 @@ import { authRouter } from "./routes/auth.js";
 import { templatesRouter } from "./routes/templates.js";
 import { professionsRouter } from "./routes/professions.js";
 import { resumesRouter } from "./routes/resumes.js";
+import { resumeChatRouter } from "./routes/resume-chat.js";
+import { atsRouter } from "./routes/ats.js";
+import { jdRouter } from "./routes/jd.js";
+import { coverLettersRouter, resumeCoverLettersRouter } from "./routes/cover-letters.js";
 import { pdfsRouter } from "./routes/pdfs.js";
+import { adminRouter } from "./routes/admin.js";
 import { closeBrowser } from "./services/pdf.js";
 
 const app = express();
@@ -43,7 +48,18 @@ if (config.oauthEnabled) {
 app.use("/templates", templatesRouter);
 app.use("/professions", professionsRouter);
 app.use("/resumes", resumesRouter);
+// Same prefix, its own file: the streaming handler has a response lifecycle
+// nothing else in the CRUD router shares. Neither router matches the other's
+// paths, so registration order between them is not load-bearing.
+app.use("/resumes", resumeChatRouter);
+app.use("/resumes", atsRouter);
+app.use("/resumes", jdRouter);
+// Generating and listing are nested under a resume; editing and exporting are
+// addressed by letter id, so the pair of routers share no prefix.
+app.use("/resumes", resumeCoverLettersRouter);
+app.use("/cover-letters", coverLettersRouter);
 app.use("/pdfs", pdfsRouter);
+app.use("/admin", adminRouter);
 
 app.use((_req, res) => {
   res.status(404).json({ error: "Not found" });

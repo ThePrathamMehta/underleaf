@@ -4,6 +4,8 @@
  *
  * Requires the api to be running. Run: bun run smoke
  */
+import { config } from "../src/config";
+
 const BASE = process.env.API_URL ?? "http://localhost:4000";
 
 let failures = 0;
@@ -487,6 +489,7 @@ async function smokePdfs(cookieA: string, cookieB: string) {
 
   await smokeScannedRejection(cookieA);
   await smokeMultiPage(cookieA);
+  await smokePageCap(cookieA);
 }
 
 /** Uploads raw PDF bytes as multipart, the way the browser's FormData would. */
@@ -529,7 +532,16 @@ async function smokeMultiPage(cookie: string) {
   const source = await PDFLib.create();
   const font = await source.embedFont(StandardFonts.Helvetica);
 
-  const PAGES = 3;
+  /**
+   * Deliberately more than a handful.
+   *
+   * This case used to build three pages, which is why it stayed green through a
+   * live P2028 bug: persisting ran a create per page inside an interactive
+   * transaction, and three pages fit inside Prisma's 5s default while a real
+   * document of a dozen didn't. A count that clears that old budget is the only
+   * version of this test that can fail if the batching regresses.
+   */
+  const PAGES = 12;
   for (let index = 0; index < PAGES; index++) {
     const page = source.addPage([612, 792]);
     page.drawText(`Page ${index + 1} heading`, { x: 72, y: 700, size: 18, font });
@@ -537,14 +549,14 @@ async function smokeMultiPage(cookie: string) {
   }
 
   const uploaded = await uploadPdf(await source.save(), "multi-page.pdf", cookie);
-  check("a 3-page PDF uploads", uploaded.status === 201, uploaded.json);
+  check(`a ${PAGES}-page PDF uploads`, uploaded.status === 201, uploaded.json);
 
   const doc = uploaded.json.document;
   const docId = doc?.id;
   if (!docId) return;
 
-  check("the document reports 3 pages", doc.pageCount === PAGES, doc.pageCount);
-  check("all 3 pages were parsed", (doc.pages ?? []).length === PAGES, doc.pages?.length);
+  check(`the document reports ${PAGES} pages`, doc.pageCount === PAGES, doc.pageCount);
+  check(`all ${PAGES} pages were parsed`, (doc.pages ?? []).length === PAGES, doc.pages?.length);
   check(
     "every page has its own text runs",
     (doc.pages ?? []).every((page: Json) => (page.runs ?? []).length > 0),
@@ -558,9 +570,10 @@ async function smokeMultiPage(cookie: string) {
   );
 
   // Edit the last page specifically: an off-by-one in the export's page lookup
-  // would put this text on the wrong page, or drop it.
+  // would put this text on the wrong page, or drop it. Reading the marker off
+  // PAGES rather than writing it out keeps this honest if the count changes.
   const lastPage = doc.pages[PAGES - 1];
-  const target = lastPage.runs.find((run: Json) => run.originalText?.includes("Page 3"));
+  const target = lastPage.runs.find((run: Json) => run.originalText?.includes(`Page ${PAGES}`));
   if (target) {
     const patched = await call("PATCH", `/pdfs/${docId}/runs/${target.id}`, {
       body: { text: "Edited on the last page" },
@@ -579,6 +592,51 @@ async function smokeMultiPage(cookie: string) {
   }
 
   await call("DELETE", `/pdfs/${docId}`, { cookie });
+}
+
+/**
+ * A document past the page cap must be refused quickly and cleanly — with a
+ * message naming the limit, and without leaving the placeholder row the upload
+ * route creates before parsing.
+ */
+async function smokePageCap(cookie: string) {
+  console.log("\n--- Page-cap rejection ---");
+
+  const { PDFDocument: PDFLib, StandardFonts } = await import("pdf-lib");
+  const source = await PDFLib.create();
+  const font = await source.embedFont(StandardFonts.Helvetica);
+
+  const pages = config.maxPdfPages + 1;
+  for (let index = 0; index < pages; index++) {
+    source.addPage([612, 792]).drawText(`Page ${index + 1}`, { x: 72, y: 700, size: 18, font });
+  }
+
+  const before = await call("GET", "/pdfs", { cookie });
+  const started = Date.now();
+  const result = await uploadPdf(await source.save(), "too-many-pages.pdf", cookie);
+  const elapsed = Date.now() - started;
+
+  check(
+    `a ${pages}-page PDF is rejected with 400 (cap is ${config.maxPdfPages})`,
+    result.status === 400,
+    result.json,
+  );
+  check(
+    "the rejection names the page limit",
+    String(result.json.error).includes(String(config.maxPdfPages)),
+    result.json.error,
+  );
+  // The whole point of checking before the render loop: the verdict should
+  // arrive in about the time it takes to open the file, not the minutes that
+  // rasterizing every page would cost.
+  check(`the rejection is fast (${(elapsed / 1000).toFixed(1)}s)`, elapsed < 20_000, elapsed);
+
+  const after = await call("GET", "/pdfs", { cookie });
+  check(
+    "the rejected upload left no document behind",
+    (after.json.documents ?? []).length === (before.json.documents ?? []).length,
+    { before: before.json.documents?.length, after: after.json.documents?.length },
+  );
 }
 
 main().catch((error) => {

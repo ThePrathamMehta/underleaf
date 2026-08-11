@@ -39,6 +39,14 @@ export function SiteHeader() {
               <NavLink href="/settings" active={pathname === '/settings'}>
                 Settings
               </NavLink>
+              {/* A rendering hint only — /admin/ai-settings re-reads the role
+                  from the database, so a client that lies about it gains a link
+                  to a 403. */}
+              {user.role === "admin" && (
+                <NavLink href="/admin/ai-settings" active={pathname.startsWith('/admin')}>
+                  AI
+                </NavLink>
+              )}
               <Button variant="ghost" size="md" className="ml-1" onClick={() => void logout()}>
                 Sign out
               </Button>

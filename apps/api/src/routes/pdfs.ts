@@ -52,6 +52,14 @@ async function findOwnedDocument(id: string, userId: string): Promise<PdfDocumen
   return doc;
 }
 
+/**
+ * How many text runs to insert per statement. Postgres binds one parameter per
+ * column per row and refuses a statement carrying more than 65535 of them; a run
+ * writes sixteen columns, so 2000 rows is 32k — comfortably clear, and few
+ * enough statements that even a document at the page cap lands in a handful.
+ */
+const RUN_INSERT_CHUNK = 2000;
+
 /** In-memory buffer for the upload (spec caps it at 15MB). */
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -113,27 +121,56 @@ pdfsRouter.post(
     // Transactionally persist the parse result. The document row and its children
     // are one unit: if this fails partway through, the cleanup above already ran
     // and the blobs are gone, so Prisma's cascade handles the orphaned row.
-    await prisma.$transaction(async (tx) => {
-      await tx.pdfDocument.update({
-        where: { id: doc.id },
-        data: { originalFileUrl: sourceKey, pageCount: result.pageCount },
-      });
+    //
+    // Three bulk statements rather than a create per page plus a createMany per
+    // page's runs. That loop issued 2N+1 *sequential* round trips inside an
+    // interactive transaction, which overran Prisma's 5s default on any document
+    // with more than a handful of pages: by the time a later create was sent the
+    // transaction had already been closed, surfacing as P2028. Page count, not
+    // file size, was what decided whether an upload survived.
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.pdfDocument.update({
+          where: { id: doc.id },
+          data: { originalFileUrl: sourceKey, pageCount: result.pageCount },
+        });
 
-      for (const parsedPage of result.pages) {
-        const page = await tx.pdfPage.create({
-          data: {
+        await tx.pdfPage.createMany({
+          data: result.pages.map((parsedPage) => ({
             pdfDocumentId: doc.id,
             pageIndex: parsedPage.pageIndex,
             width: parsedPage.width,
             height: parsedPage.height,
             backgroundImageUrl: parsedPage.backgroundKey,
             backgroundVersion: parsedPage.backgroundVersion,
-          },
+          })),
         });
 
-        await tx.pdfTextRun.createMany({
-          data: parsedPage.runs.map((run) => ({
-            pdfPageId: page.id,
+        // createMany doesn't hand back generated ids, and the runs need one as a
+        // foreign key. Reading them back by pageIndex — unique per document — is
+        // a single round trip and keeps the schema's own cuid default rather
+        // than minting ids here in a second id format.
+        const pageIdByIndex = new Map(
+          (
+            await tx.pdfPage.findMany({
+              where: { pdfDocumentId: doc.id },
+              select: { id: true, pageIndex: true },
+            })
+          ).map((page) => [page.pageIndex, page.id]),
+        );
+
+        const runRows = result.pages.flatMap((parsedPage) => {
+          const pdfPageId = pageIdByIndex.get(parsedPage.pageIndex);
+          // We created this page two statements ago, so a miss is a broken
+          // invariant rather than a data problem. Throwing rolls the whole
+          // transaction back; silently dropping the runs would leave the user
+          // with a page they can see but can't edit.
+          if (!pdfPageId) {
+            throw new Error(`Page ${parsedPage.pageIndex} of ${doc.id} vanished mid-transaction`);
+          }
+
+          return parsedPage.runs.map((run) => ({
+            pdfPageId,
             x: run.x,
             y: run.y,
             width: run.width,
@@ -147,10 +184,22 @@ pdfsRouter.post(
             backgroundColor: run.backgroundColor,
             originalText: run.originalText,
             text: run.originalText,
-          })),
+          }));
         });
-      }
-    });
+
+        // Chunked because createMany binds one parameter per column per row and
+        // Postgres caps a statement at 65535 of them.
+        for (let i = 0; i < runRows.length; i += RUN_INSERT_CHUNK) {
+          await tx.pdfTextRun.createMany({ data: runRows.slice(i, i + RUN_INSERT_CHUNK) });
+        }
+      },
+      {
+        // Well clear of what the statements above need, so a slow database on a
+        // large document fails as a real error rather than as a timeout.
+        maxWait: 15_000,
+        timeout: 120_000,
+      },
+    );
 
     const persisted = await findOwnedDocument(doc.id, req.userId);
     res.status(201).json({ document: serializePdfDocument(persisted) });

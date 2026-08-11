@@ -152,6 +152,22 @@ export class UnreadablePdfError extends Error {
   }
 }
 
+/**
+ * Thrown when a document has more pages than the configured cap. Checked the
+ * moment the page count is known and before anything is rendered, so an
+ * oversized document is refused in about a second rather than after the minutes
+ * of rasterizing it would otherwise take to reach the same verdict.
+ */
+export class TooManyPagesError extends Error {
+  constructor(pageCount: number, maxPages: number) {
+    super(
+      `This PDF has ${pageCount} pages, and Underleaf can edit up to ${maxPages}. ` +
+        "Split it and upload just the part you need.",
+    );
+    this.name = "TooManyPagesError";
+  }
+}
+
 // --- Colour helpers ---
 
 /**
@@ -237,7 +253,11 @@ function mergeIntoLines(items: Placed[]): Placed[] {
 
 // --- Parse ---
 
-export async function parsePdf(source: Uint8Array, documentId: string): Promise<ParseResult> {
+export async function parsePdf(
+  source: Uint8Array,
+  documentId: string,
+  { maxPages }: { maxPages: number },
+): Promise<ParseResult> {
   const pdfjs = await getPdfjs();
 
   // pdfjs transfers ownership of the buffer it's given, so both readers get
@@ -273,6 +293,15 @@ export async function parsePdf(source: Uint8Array, documentId: string): Promise<
   const fontPrograms = new Map<string, ParsedFontProgram>();
   let totalCharacters = 0;
   const pageCount = doc.numPages;
+
+  // Before the loop below, which is where all the cost is: every page here means
+  // a full render to a canvas, a text-content pass, and a row per run. Bailing
+  // now costs the caller a second; bailing after would cost minutes and produce
+  // megabytes of backdrops we'd only have to delete again.
+  if (pageCount > maxPages) {
+    await loadingTask.destroy();
+    throw new TooManyPagesError(pageCount, maxPages);
+  }
 
   for (let index = 0; index < pageCount; index++) {
     const page = await doc.getPage(index + 1);

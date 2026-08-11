@@ -23,8 +23,12 @@ export const resumesRouter = Router();
 resumesRouter.use(requireAuth);
 
 /** Loads a resume only if it belongs to the caller; 404s rather than 403s so
- * the endpoint doesn't confirm that someone else's id exists. */
-async function findOwnedResume(id: string, userId: string) {
+ * the endpoint doesn't confirm that someone else's id exists.
+ *
+ * Exported because every v4 feature that hangs off a resume — chat, ATS, JD
+ * matching, cover letters — needs the same check, and an authorization rule
+ * copied into five files is one refactor away from being four. */
+export async function findOwnedResume(id: string, userId: string) {
   const resume = await prisma.resume.findFirst({
     where: { id, userId },
     include: { template: true },

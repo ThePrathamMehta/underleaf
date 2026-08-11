@@ -15,6 +15,7 @@
   },
   "scripts": {
     "lint": "eslint . --max-warnings 0",
+    "test": "bun test",
     "generate:component": "turbo gen react-component",
     "sync-fonts": "bun run scripts/sync-fonts.ts",
     "check-types": "tsc --noEmit"

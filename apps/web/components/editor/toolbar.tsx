@@ -37,6 +37,16 @@ const ACCENT_COLORS = [
 
 const TEXT_COLORS = ["#1a1a1a", "#000000", "#27272a", "#334155", "#3f3f46"] as const;
 
+/**
+ * The right-hand dock holds one panel at a time.
+ *
+ * All three reason about the document you're looking at and all three want the
+ * canvas beside them, so they share the dock rather than each taking a route:
+ * "Apply with AI" in the job-match panel has to land on the visible canvas and
+ * on the same undo stack, which a separate page could not do.
+ */
+export type EditorPanel = "assistant" | "ats" | "jd";
+
 const PAGE_SIZE_OPTIONS = [
   { value: "letter" as PageSize, label: "Letter" },
   { value: "a4" as PageSize, label: "A4" },
@@ -52,6 +62,7 @@ export function EditorToolbar({
   templateSlug,
   templates,
   exporting,
+  activePanel,
   onTitleChange,
   onTitleCommit,
   onThemeChange,
@@ -63,6 +74,8 @@ export function EditorToolbar({
   onExport,
   onBack,
   onAddPage,
+  onTogglePanel,
+  onCoverLetter,
 }: {
   title: string;
   theme: Theme;
@@ -73,6 +86,7 @@ export function EditorToolbar({
   templateSlug: string;
   templates: { id: string; slug: string; name: string }[];
   exporting: boolean;
+  activePanel: EditorPanel | null;
   onTitleChange: (title: string) => void;
   onTitleCommit: () => void;
   onThemeChange: (patch: Partial<Theme>) => void;
@@ -84,6 +98,8 @@ export function EditorToolbar({
   onExport: () => void;
   onBack: () => void;
   onAddPage: () => void;
+  onTogglePanel: (panel: EditorPanel) => void;
+  onCoverLetter: () => void;
 }) {
   const activeTemplate = templates.find((t) => t.slug === templateSlug);
 
@@ -109,6 +125,42 @@ export function EditorToolbar({
 
         <ThemeToggle />
         <UserMenu />
+
+        {/* The AI surfaces. Toggles rather than links: all three read the
+            document you're looking at, so they belong beside the canvas. */}
+        <div className="flex shrink-0 items-center gap-0.5">
+          <PanelToggle
+            active={activePanel === "assistant"}
+            label="Assistant"
+            onClick={() => onTogglePanel("assistant")}
+          >
+            <SparkIcon />
+          </PanelToggle>
+          <PanelToggle
+            active={activePanel === "ats"}
+            label="ATS"
+            onClick={() => onTogglePanel("ats")}
+          >
+            <GaugeIcon />
+          </PanelToggle>
+          <PanelToggle
+            active={activePanel === "jd"}
+            label="Match"
+            onClick={() => onTogglePanel("jd")}
+          >
+            <TargetIcon />
+          </PanelToggle>
+          {/* Navigates, so no pressed state — it's a destination, not a mode. */}
+          <button
+            type="button"
+            onClick={onCoverLetter}
+            title="Cover letter"
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[0.8125rem] text-ink-muted transition-colors duration-150 hover:bg-paper-sunken hover:text-ink"
+          >
+            <LetterIcon />
+            <span className="hidden lg:inline">Cover letter</span>
+          </button>
+        </div>
 
         <Button size="sm" onClick={onExport} disabled={exporting}>
           {exporting ? "Preparing…" : "Export PDF"}
@@ -349,6 +401,40 @@ function TriggerButton({
   );
 }
 
+/**
+ * One of the three dock toggles.
+ *
+ * The label collapses below `lg` because three labelled buttons plus Export
+ * overflows a laptop-width toolbar; `title` keeps the name reachable, and
+ * `aria-pressed` keeps the mode legible to a screen reader either way.
+ */
+function PanelToggle({
+  active,
+  label,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      title={label}
+      className={`inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[0.8125rem] transition-colors duration-150 ${
+        active ? "bg-accent-wash text-accent" : "text-ink-muted hover:bg-paper-sunken hover:text-ink"
+      }`}
+    >
+      {children}
+      <span className="hidden lg:inline">{label}</span>
+    </button>
+  );
+}
+
 function FontPicker({
   label,
   value,
@@ -491,6 +577,43 @@ function PlusIcon() {
   return (
     <svg {...svg}>
       <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function SparkIcon() {
+  return (
+    <svg {...svg}>
+      <path d="M12 3l1.7 4.8L18.5 9.5 13.7 11.2 12 16l-1.7-4.8L5.5 9.5l4.8-1.7L12 3Z" />
+      <path d="M18 16.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7.7-1.8Z" />
+    </svg>
+  );
+}
+
+function GaugeIcon() {
+  return (
+    <svg {...svg}>
+      <path d="M4 18a8 8 0 1 1 16 0" />
+      <path d="M12 18l4.5-5" />
+    </svg>
+  );
+}
+
+function TargetIcon() {
+  return (
+    <svg {...svg}>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="4" />
+      <circle cx="12" cy="12" r="0.6" fill="currentColor" />
+    </svg>
+  );
+}
+
+function LetterIcon() {
+  return (
+    <svg {...svg}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="m3.5 7 8.5 6 8.5-6" />
     </svg>
   );
 }

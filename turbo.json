@@ -21,7 +21,12 @@
     "GITHUB_CLIENT_ID",
     "GITHUB_CLIENT_SECRET",
     "STORAGE_DIR",
-    "MAX_UPLOAD_BYTES"
+    "MAX_UPLOAD_BYTES",
+    "MAX_PDF_PAGES",
+    "ADMIN_EMAILS",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "AI_KEY_*"
   ],
   "tasks": {
     "db:generate": {
@@ -48,6 +53,10 @@
     },
     "lint": {
       "dependsOn": ["^lint"]
+    },
+    "test": {
+      "dependsOn": ["^test"],
+      "outputs": []
     },
     "check-types": {
       "dependsOn": ["^check-types", "db:generate"]

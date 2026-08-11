@@ -1,16 +1,32 @@
 import type {
+  AiConfigResponse,
+  AiProviderConfigDto,
+  AtsHistoryEntry,
+  AtsScoreResponse,
   ChangePasswordBody,
+  ChatHistoryResponse,
+  ChatStreamEvent,
+  CompareJdBody,
+  CoverLetterDto,
+  CoverLetterListResponse,
+  CoverLetterResponse,
   DeleteAccountBody,
+  GenerateCoverLetterBody,
+  JdCompareResponse,
+  JdComparisonSummary,
   PdfDocumentDto,
   PdfDocumentSummaryDto,
   ProfessionDto,
   PublicUser,
   RenamePdfDocumentBody,
   ResumeWithTemplateDto,
+  SendChatBody,
   TemplateDto,
+  UpdateCoverLetterBody,
   UpdatePdfTextRunBody,
   UpdateProfileBody,
   UpdateResumeBody,
+  UpsertAiConfigBody,
 } from "@repo/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
@@ -95,6 +111,85 @@ async function upload<T>(path: string, form: FormData, signal?: AbortSignal): Pr
   }
 
   return payload as T;
+}
+
+/**
+ * POSTs a JSON body and yields the server-sent events it streams back.
+ *
+ * `EventSource` would be the obvious tool and cannot be used: it only issues GET
+ * requests, and the chat message is a body. So this is `fetch` plus a hand-rolled
+ * frame parser — small, because the server only ever sends `data:` lines.
+ *
+ * Non-2xx responses are still parsed as JSON and thrown as `ApiError`, so the
+ * caller distinguishes "you aren't allowed" from "the stream broke" the same way
+ * it does everywhere else.
+ */
+export async function* streamRequest<T>(
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+): AsyncGenerator<T> {
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      body: JSON.stringify(body),
+      credentials: "include",
+      signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    throw new ApiError(0, "Could not reach the server. Is the API running?");
+  }
+
+  if (!response.ok) {
+    const isJson = (response.headers.get("content-type") ?? "").includes("application/json");
+    const payload = isJson ? await response.json() : null;
+    throw new ApiError(
+      response.status,
+      payload?.error ?? `Request failed with status ${response.status}`,
+      payload?.details,
+    );
+  }
+
+  if (!response.body) throw new ApiError(0, "The server sent an empty response.");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Frames are separated by a blank line. Anything after the last one is a
+      // partial frame and stays in the buffer for the next chunk — a large
+      // `document` event routinely arrives split across reads.
+      let boundary = buffer.indexOf("\n\n");
+      while (boundary !== -1) {
+        const frame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        boundary = buffer.indexOf("\n\n");
+
+        const data = frame
+          .split("\n")
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trimStart())
+          .join("\n");
+
+        if (data) yield JSON.parse(data) as T;
+      }
+    }
+  } finally {
+    // Releasing the lock lets an abort actually tear the connection down rather
+    // than leaving it half-open until the tab closes.
+    reader.releaseLock();
+  }
 }
 
 export const api = {
@@ -230,5 +325,154 @@ export const api = {
    */
   assetUrl(path: string) {
     return `${API_URL}/${path}`;
+  },
+
+  // --- Admin: AI provider settings ---
+
+  /**
+   * Note what these two never carry: an API key. The response holds env var
+   * *names* and a configured flag, and the request sends back a name. There is
+   * no field on either side that could hold a secret, which is what makes "no
+   * raw key reaches the browser" true by shape rather than by discipline.
+   */
+  aiConfig(signal?: AbortSignal) {
+    return request<AiConfigResponse>("/admin/ai-config", { signal });
+  },
+
+  saveAiConfig(body: UpsertAiConfigBody) {
+    return request<{ config: AiProviderConfigDto }>("/admin/ai-config", {
+      method: "PATCH",
+      body,
+    });
+  },
+
+  // --- Chat assistant ---
+
+  chatHistory(resumeId: string, signal?: AbortSignal) {
+    return request<ChatHistoryResponse>(`/resumes/${resumeId}/chat`, { signal });
+  },
+
+  clearChat(resumeId: string) {
+    return request<void>(`/resumes/${resumeId}/chat`, { method: "DELETE" });
+  },
+
+  /**
+   * One assistant turn. The `document` events it yields are computed but not
+   * saved by the server — applying them is the editor's job, which is what puts
+   * an AI edit on the same undo stack as a keystroke.
+   */
+  sendChatMessage(resumeId: string, body: SendChatBody, signal?: AbortSignal) {
+    return streamRequest<ChatStreamEvent>(`/resumes/${resumeId}/chat`, body, signal);
+  },
+
+  // --- ATS score ---
+
+  /** Runs the checks. Deliberately a POST: it costs money and writes history. */
+  scoreAts(resumeId: string, signal?: AbortSignal) {
+    return request<AtsScoreResponse>(`/resumes/${resumeId}/ats-score`, { method: "POST", signal });
+  },
+
+  /**
+   * The most recent run, or `undefined` when there has never been one — the API
+   * answers 204 for that, which `request` already turns into undefined. A panel
+   * opening for the first time is an empty state, not an error.
+   */
+  latestAtsScore(resumeId: string, signal?: AbortSignal) {
+    return request<AtsScoreResponse | undefined>(`/resumes/${resumeId}/ats-score/latest`, {
+      signal,
+    });
+  },
+
+  atsHistory(resumeId: string, signal?: AbortSignal) {
+    return request<{ history: AtsHistoryEntry[] }>(`/resumes/${resumeId}/ats-score/history`, {
+      signal,
+    });
+  },
+
+  // --- Job description matching ---
+
+  compareJd(resumeId: string, body: CompareJdBody, signal?: AbortSignal) {
+    return request<JdCompareResponse>(`/resumes/${resumeId}/jd-compare`, {
+      method: "POST",
+      body,
+      signal,
+    });
+  },
+
+  jdComparisons(resumeId: string, signal?: AbortSignal) {
+    return request<{ comparisons: JdComparisonSummary[] }>(`/resumes/${resumeId}/jd-compare`, {
+      signal,
+    });
+  },
+
+  jdComparison(resumeId: string, comparisonId: string, signal?: AbortSignal) {
+    return request<JdCompareResponse>(`/resumes/${resumeId}/jd-compare/${comparisonId}`, {
+      signal,
+    });
+  },
+
+  /**
+   * Applies one suggestion through the assistant, streaming the same events the
+   * chat panel consumes — which is what makes the edit land on the editor's undo
+   * stack as a single step, identical to a typed request.
+   *
+   * Note what isn't sent: the instruction. Only its id travels, and the server
+   * reads the text it composed out of the stored comparison.
+   */
+  applyJdSuggestion(
+    resumeId: string,
+    comparisonId: string,
+    suggestionId: string,
+    signal?: AbortSignal,
+  ) {
+    return streamRequest<ChatStreamEvent>(
+      `/resumes/${resumeId}/jd-compare/${comparisonId}/apply`,
+      { suggestionId },
+      signal,
+    );
+  },
+
+  // --- Cover letters ---
+
+  /**
+   * Generates a letter, or regenerates one in place when `coverLetterId` is set.
+   *
+   * Omitting `jobDescriptionText` entirely asks the server to reuse the most
+   * recent JD this resume was compared against; sending an empty string is an
+   * explicit "write it without one". Those are different requests, which is why
+   * the field is optional *and* nullable rather than just nullable.
+   */
+  generateCoverLetter(resumeId: string, body: GenerateCoverLetterBody, signal?: AbortSignal) {
+    return request<CoverLetterResponse>(`/resumes/${resumeId}/cover-letter`, {
+      method: "POST",
+      body,
+      signal,
+    });
+  },
+
+  coverLetters(resumeId: string, signal?: AbortSignal) {
+    return request<CoverLetterListResponse>(`/resumes/${resumeId}/cover-letter`, { signal });
+  },
+
+  coverLetter(letterId: string, signal?: AbortSignal) {
+    return request<{ letter: CoverLetterDto }>(`/cover-letters/${letterId}`, { signal });
+  },
+
+  /** The autosave target for hand edits, same contract as `updateResume`. */
+  updateCoverLetter(letterId: string, body: UpdateCoverLetterBody, signal?: AbortSignal) {
+    return request<{ letter: CoverLetterDto }>(`/cover-letters/${letterId}`, {
+      method: "PATCH",
+      body,
+      signal,
+    });
+  },
+
+  deleteCoverLetter(letterId: string) {
+    return request<void>(`/cover-letters/${letterId}`, { method: "DELETE" });
+  },
+
+  /** Absolute URL so the browser can navigate to it for a file download. */
+  coverLetterExportUrl(letterId: string) {
+    return `${API_URL}/cover-letters/${letterId}/export.pdf`;
   },
 };

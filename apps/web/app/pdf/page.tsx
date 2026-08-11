@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { PdfDocumentSummaryDto } from "@repo/types";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth-context";
+import { pdfUploadError } from "../../lib/uploads";
 import { ButtonLink } from "../../components/button";
 import { SiteHeader } from "../../components/site-header";
 
@@ -67,12 +68,12 @@ export default function PdfPage() {
   function accept(file: File | undefined) {
     if (!file) return;
 
-    // The server rejects non-PDFs with a 415 anyway; checking here saves a
-    // pointless round trip of what may be a large file.
-    const looksLikePdf =
-      file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-    if (!looksLikePdf) {
-      setError("That file isn't a PDF. Only .pdf files can be edited here.");
+    // The server enforces all of this too; checking here saves a pointless round
+    // trip of what may be a large file, and turns "wait for the upload, then get
+    // rejected" into an instant answer.
+    const rejection = pdfUploadError(file);
+    if (rejection) {
+      setError(rejection);
       return;
     }
 

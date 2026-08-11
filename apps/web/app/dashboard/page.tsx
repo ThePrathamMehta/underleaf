@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { PdfDocumentSummaryDto, ResumeWithTemplateDto } from "@repo/types";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth-context";
+import { pdfUploadError } from "../../lib/uploads";
 import { Button, ButtonLink } from "../../components/button";
 import { SiteHeader } from "../../components/site-header";
 import { ResumeThumbnail } from "../../components/resume-thumbnail";
@@ -61,6 +62,23 @@ export default function DashboardPage() {
       );
       setUploading(false);
     }
+  }
+
+  /**
+   * The picker's guard, matching the one on `/pdf`. Without it this entry point
+   * would happily upload a 40MB file and only then report what the dropzone
+   * refuses instantly.
+   */
+  function acceptPdf(file: File | undefined) {
+    if (!file) return;
+
+    const rejection = pdfUploadError(file);
+    if (rejection) {
+      setError(rejection);
+      return;
+    }
+
+    void uploadPdf(file);
   }
 
   async function removePdf(id: string) {
@@ -128,7 +146,7 @@ export default function DashboardPage() {
                 const file = event.target.files?.[0];
                 // Reset first so re-picking the same file still fires onChange.
                 event.target.value = "";
-                if (file) void uploadPdf(file);
+                if (file) acceptPdf(file);
               }}
             />
             <Button
@@ -202,6 +220,12 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity duration-200 group-hover:opacity-100 focus-within:opacity-100">
+                      <RowLink
+                        label="Cover letter"
+                        href={`/resumes/${resume.id}/cover-letter`}
+                      >
+                        <LetterIcon />
+                      </RowLink>
                       <RowAction
                         label="Duplicate"
                         disabled={busyId === resume.id}
@@ -363,6 +387,31 @@ function RowAction({
   );
 }
 
+/**
+ * A `Link` wearing `RowAction`'s clothes. Navigation, not an action — so it can
+ * be middle-clicked or opened in a new tab, which a button silently cannot.
+ */
+function RowLink({
+  label,
+  href,
+  children,
+}: {
+  label: string;
+  href: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      title={label}
+      aria-label={label}
+      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-paper-sunken hover:text-ink"
+    >
+      {children}
+    </Link>
+  );
+}
+
 function EmptyState() {
   return (
     <div className="mt-16 flex flex-col items-center gap-6 text-center">
@@ -465,6 +514,15 @@ function TrashIcon() {
   return (
     <svg {...svg}>
       <path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" />
+    </svg>
+  );
+}
+
+function LetterIcon() {
+  return (
+    <svg {...svg}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3.5 6.5l8.5 6 8.5-6" />
     </svg>
   );
 }

@@ -3,16 +3,19 @@
 import { use, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import type { SectionType, TemplateDto, Theme } from "@repo/types";
+import type { ResumeContent, SectionType, TemplateDto, Theme } from "@repo/types";
 import type { FieldPath } from "@repo/ui/resume";
 import { api, ApiError } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth-context";
 import { editorReducer, initEditorState } from "../../../lib/editor-reducer";
 import { useAutosave } from "../../../lib/use-autosave";
-import { EditorToolbar } from "../../../components/editor/toolbar";
+import { EditorToolbar, type EditorPanel } from "../../../components/editor/toolbar";
 import { SelectionToolbar } from "../../../components/editor/selection-toolbar";
 import { EditorCanvas, type CanvasHandle } from "../../../components/editor/canvas";
 import { SectionPanel } from "../../../components/editor/section-panel";
+import { ChatPanel } from "../../../components/editor/chat-panel";
+import { AtsPanel } from "../../../components/editor/ats-panel";
+import { JdPanel } from "../../../components/editor/jd-panel";
 import { PageRail } from "../../../components/editor/page-rail";
 import { ButtonLink } from "../../../components/button";
 import { Logo } from "../../../components/logo";
@@ -46,6 +49,7 @@ export default function EditorPage({ params }: { params: Promise<{ resumeId: str
   const [zoom, setZoom] = useState(1);
   const [focusedSectionId, setFocusedSectionId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [activePanel, setActivePanel] = useState<EditorPanel | null>(null);
   // Sheet count and current sheet both come from the canvas: they're properties
   // of the measured layout, which only the canvas can compute.
   const [pageCount, setPageCount] = useState(1);
@@ -55,6 +59,22 @@ export default function EditorPage({ params }: { params: Promise<{ resumeId: str
   useEffect(() => {
     if (!authLoading && !user) router.replace(`/login?next=${encodeURIComponent(`/editor/${resumeId}`)}`);
   }, [authLoading, user, router, resumeId]);
+
+  /**
+   * Opens a dock panel from `?panel=`, so `/editor/:id/ats` and
+   * `/editor/:id/jd-match` are real, linkable addresses that still land in the
+   * editor with the canvas beside them.
+   *
+   * Read from `window` in an effect rather than through `useSearchParams`: this
+   * runs once on mount, which keeps the page out of a Suspense boundary it
+   * otherwise wouldn't need.
+   */
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("panel");
+    if (requested === "assistant" || requested === "ats" || requested === "jd") {
+      setActivePanel(requested);
+    }
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -102,7 +122,21 @@ export default function EditorPage({ params }: { params: Promise<{ resumeId: str
     buildPatch,
   );
 
+  /**
+   * Whether the browser's own undo stack still describes what's on screen.
+   *
+   * Typing into a field is recorded natively, so Ctrl+Z inside a focused field
+   * belongs to the browser — undoing a character at a time is what a user
+   * expects mid-sentence. An AI edit is a programmatic re-render, which browsers
+   * do not record: after one lands, the native stack describes text that is no
+   * longer there, and Ctrl+Z inside a field appears to do nothing at all. From
+   * that point the shortcut belongs to our history stack regardless of focus,
+   * until the user types again and gives the browser something real to undo.
+   */
+  const nativeUndoUsable = useRef(true);
+
   const onFieldChange = useCallback((path: FieldPath, value: string) => {
+    nativeUndoUsable.current = true;
     dispatch({ type: "setField", path, value });
   }, []);
 
@@ -112,13 +146,13 @@ export default function EditorPage({ params }: { params: Promise<{ resumeId: str
     dispatch({ type: "patchTheme", patch });
   }, []);
 
-  // Undo/redo shortcuts. Skipped while a contentEditable holds focus so the
-  // browser's own text-level undo keeps working inside a field.
+  // Undo/redo shortcuts. Deferred to the browser only while a focused field's
+  // native stack is still trustworthy — see `nativeUndoUsable`.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") return;
       const active = document.activeElement as HTMLElement | null;
-      if (active?.isContentEditable) return;
+      if (active?.isContentEditable && nativeUndoUsable.current) return;
 
       event.preventDefault();
       dispatch({ type: event.shiftKey ? "redo" : "undo" });
@@ -179,6 +213,43 @@ export default function EditorPage({ params }: { params: Promise<{ resumeId: str
     canvas.current?.scrollToSection(sectionId);
   }, []);
 
+  /**
+   * Runs once before each assistant turn, and does two things that both have to
+   * happen before the request leaves.
+   *
+   * The flush is the same one export does: the server reads the *saved* resume,
+   * so an unsaved keystroke would otherwise be invisible to the model. The commit
+   * is the undo boundary — `applyAiEdit` coalesces, so pushing the pre-turn
+   * document onto `past` here is what makes a turn that rewrote four bullets
+   * revert in a single Ctrl+Z.
+   */
+  const handleBeforeTurn = useCallback(async () => {
+    dispatch({ type: "commit" });
+    if (isDirty) await saveNow();
+  }, [isDirty, saveNow]);
+
+  /**
+   * The flush without the undo boundary, for panels that read the document
+   * rather than change it. Scoring and JD matching both run server-side against
+   * the saved row, so an unsaved keystroke would be measured as absent.
+   */
+  const handleFlush = useCallback(async () => {
+    if (isDirty) await saveNow();
+  }, [isDirty, saveNow]);
+
+  const handleApplyDocument = useCallback((content: ResumeContent, theme: Theme) => {
+    // React rewrote the fields, so whatever the browser had queued for the
+    // focused one no longer matches the screen. Claim Ctrl+Z until the user
+    // types and the native stack becomes meaningful again.
+    nativeUndoUsable.current = false;
+    dispatch({ type: "applyAiEdit", content, theme });
+  }, []);
+
+  /** One dock, one panel: clicking the open one closes it, another swaps. */
+  const togglePanel = useCallback((panel: EditorPanel) => {
+    setActivePanel((current) => (current === panel ? null : panel));
+  }, []);
+
   const templateOptions = useMemo(
     () => templates.map((t) => ({ id: t.id, slug: t.slug, name: t.name })),
     [templates],
@@ -211,6 +282,7 @@ export default function EditorPage({ params }: { params: Promise<{ resumeId: str
         templateSlug={templateSlug}
         templates={templateOptions}
         exporting={exporting}
+        activePanel={activePanel}
         onTitleChange={(title) => dispatch({ type: "setTitle", title })}
         onTitleCommit={() => dispatch({ type: "commit" })}
         onThemeChange={onThemeChange}
@@ -222,6 +294,8 @@ export default function EditorPage({ params }: { params: Promise<{ resumeId: str
         onExport={() => void handleExport()}
         onBack={handleBackToDashboard}
         onAddPage={() => dispatch({ type: "addPage" })}
+        onTogglePanel={togglePanel}
+        onCoverLetter={() => router.push(`/resumes/${resumeId}/cover-letter`)}
       />
 
       {saveError && (
@@ -267,6 +341,42 @@ export default function EditorPage({ params }: { params: Promise<{ resumeId: str
           onAdd={(sectionType: SectionType) => dispatch({ type: "addSection", sectionType })}
           onFocusSection={scrollToSection}
         />
+
+        {/* Unmounted when closed rather than hidden: an in-flight turn is aborted
+            on unmount, so closing the panel really does end the provider call.
+            The transcript lives on the server, so reopening restores it. */}
+        {activePanel === "assistant" && (
+          <ChatPanel
+            resumeId={resumeId}
+            onClose={() => setActivePanel(null)}
+            onBeforeTurn={handleBeforeTurn}
+            onApplyDocument={handleApplyDocument}
+            onFocusSection={scrollToSection}
+          />
+        )}
+
+        {activePanel === "ats" && (
+          <AtsPanel
+            resumeId={resumeId}
+            onClose={() => setActivePanel(null)}
+            onBeforeCheck={handleFlush}
+            onFocusSection={scrollToSection}
+          />
+        )}
+
+        {/* Two different pre-flight hooks, deliberately: comparing only reads the
+            document, while "Apply with AI" edits it and so needs the undo
+            boundary opened first. */}
+        {activePanel === "jd" && (
+          <JdPanel
+            resumeId={resumeId}
+            onClose={() => setActivePanel(null)}
+            onBeforeRun={handleFlush}
+            onBeforeApply={handleBeforeTurn}
+            onApplyDocument={handleApplyDocument}
+            onFocusSection={scrollToSection}
+          />
+        )}
       </div>
     </div>
   );

@@ -16,7 +16,8 @@
  * the isolation is worth having on its own merits.
  */
 import { storage, storageKeys, contentHash, fontExtensionFor } from "./storage";
-import { NoTextLayerError, UnreadablePdfError, parsePdf } from "./pdf-parse";
+import { NoTextLayerError, TooManyPagesError, UnreadablePdfError, parsePdf } from "./pdf-parse";
+import { config } from "../config";
 import {
   RESULT_SENTINEL,
   type ParseJob,
@@ -28,7 +29,9 @@ async function run(job: ParseJob): Promise<ParseJobResult> {
   const source = await storage.get(job.sourceKey);
   if (!source) return { ok: false, code: "INTERNAL", message: "Uploaded file is missing." };
 
-  const parsed = await parsePdf(new Uint8Array(source.bytes), job.documentId);
+  const parsed = await parsePdf(new Uint8Array(source.bytes), job.documentId, {
+    maxPages: config.maxPdfPages,
+  });
 
   // Font programs first: a run can't reference a key that isn't written yet.
   const fontKeys = new Map<string, string>();
@@ -82,6 +85,8 @@ try {
     result = { ok: false, code: "NO_TEXT_LAYER", message: error.message };
   } else if (error instanceof UnreadablePdfError) {
     result = { ok: false, code: "UNREADABLE", message: error.message };
+  } else if (error instanceof TooManyPagesError) {
+    result = { ok: false, code: "TOO_MANY_PAGES", message: error.message };
   } else {
     process.stderr.write(`pdf-parse-worker: ${(error as Error)?.stack ?? String(error)}\n`);
     result = { ok: false, code: "INTERNAL", message: "Could not process this PDF." };
