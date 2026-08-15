@@ -7,6 +7,7 @@ import {
   type AiProvider,
   type AiProviderConfigDto,
   type AiPurpose,
+  type PlanKey,
   type UpsertAiConfigBody,
 } from "@repo/types";
 import { isAllowedSecretRef, listSecretRefs, resolveSecretRef } from "../config.js";
@@ -38,6 +39,7 @@ function serializeConfig(row: AiProviderConfig): AiProviderConfigDto {
     // a variable by that name happens to exist.
     apiKeyConfigured: Boolean(resolveSecretRef(row.apiKeySecretRef)),
     purpose: row.purpose as AiPurpose,
+    planKey: (row.planKey as PlanKey | null) ?? null,
     isActive: row.isActive,
     baseUrl: row.baseUrl,
     updatedAt: row.updatedAt.toISOString(),
@@ -80,6 +82,10 @@ adminRouter.patch(
       modelName: body.modelName.trim(),
       apiKeySecretRef: body.apiKeySecretRef,
       purpose: body.purpose,
+      // Absent and explicitly null mean the same thing here — "serves every
+      // tier" — so both normalise to null rather than leaving the column
+      // untouched on an update that cleared the field.
+      planKey: body.planKey ?? null,
       isActive: body.isActive,
       baseUrl: body.baseUrl ?? null,
     };

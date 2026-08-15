@@ -1,8 +1,10 @@
 "use client";
 
 import { Reorder, useDragControls } from "framer-motion";
+import { useState } from "react";
 import type { Section, SectionType } from "@repo/types";
 import { SECTION_TYPES } from "@repo/types";
+import { htmlToPlainText } from "@repo/ui/resume/rich-text";
 import { FieldLabel, Popover } from "./controls";
 
 const SECTION_LABELS: Record<SectionType, string> = {
@@ -38,14 +40,42 @@ export function SectionPanel({
   onFocusSection: (id: string) => void;
 }) {
   const ordered = [...sections].sort((a, b) => a.order - b.order);
+  const [collapsed, setCollapsed] = useState(false);
+
+  if (collapsed) {
+    return (
+      <aside className="hidden w-10 shrink-0 border-l border-rule bg-paper xl:flex xl:flex-col xl:items-center">
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          title="Show sections"
+          aria-label="Show sections"
+          className="mt-4 rounded-md p-2 text-ink-faint transition-colors hover:bg-paper-sunken hover:text-ink"
+        >
+          <ChevronLeftIcon />
+        </button>
+      </aside>
+    );
+  }
 
   return (
     <aside className="hidden w-[17.5rem] shrink-0 border-l border-rule bg-paper xl:flex xl:flex-col">
       <div className="flex items-center justify-between px-5 pb-3 pt-5">
         <FieldLabel>Sections</FieldLabel>
-        <span className="font-mono text-[0.625rem] tabular-nums text-ink-faint">
-          {ordered.filter((s) => s.visible).length}/{ordered.length}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[0.625rem] tabular-nums text-ink-faint">
+            {ordered.filter((s) => s.visible).length}/{ordered.length}
+          </span>
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            title="Hide sections"
+            aria-label="Hide sections"
+            className="rounded p-1 text-ink-faint transition-colors hover:text-ink"
+          >
+            <ChevronRightIcon />
+          </button>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
@@ -133,6 +163,7 @@ function SectionRow({
 }) {
   // Drag starts only from the handle, so the row's buttons stay clickable.
   const controls = useDragControls();
+  const title = htmlToPlainText(section.title).replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim() || SECTION_LABELS[section.type];
 
   return (
     <Reorder.Item
@@ -146,7 +177,7 @@ function SectionRow({
     >
       <button
         type="button"
-        aria-label={`Reorder ${section.title}`}
+        aria-label={`Reorder ${title}`}
         onPointerDown={(event) => controls.start(event)}
         className="cursor-grab touch-none p-1 text-ink-faint opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
       >
@@ -160,14 +191,14 @@ function SectionRow({
           section.visible ? "text-ink" : "text-ink-faint line-through decoration-1"
         }`}
       >
-        {section.title || SECTION_LABELS[section.type]}
+        {title}
       </button>
 
       <button
         type="button"
         onClick={onToggle}
         title={section.visible ? "Hide section" : "Show section"}
-        aria-label={section.visible ? `Hide ${section.title}` : `Show ${section.title}`}
+        aria-label={section.visible ? `Hide ${title}` : `Show ${title}`}
         className="rounded p-1 text-ink-faint transition-colors hover:text-ink"
       >
         {section.visible ? <EyeIcon /> : <EyeOffIcon />}
@@ -177,7 +208,7 @@ function SectionRow({
         type="button"
         onClick={onRemove}
         title="Delete section"
-        aria-label={`Delete ${section.title}`}
+        aria-label={`Delete ${title}`}
         className="rounded p-1 text-ink-faint opacity-0 transition-all hover:text-danger group-hover:opacity-100"
       >
         <TrashIcon />
@@ -243,4 +274,12 @@ function PlusIcon() {
       <path d="M12 5v14M5 12h14" />
     </svg>
   );
+}
+
+function ChevronLeftIcon() {
+  return <svg {...svg}><path d="m15 18-6-6 6-6" /></svg>;
+}
+
+function ChevronRightIcon() {
+  return <svg {...svg}><path d="m9 18 6-6-6-6" /></svg>;
 }

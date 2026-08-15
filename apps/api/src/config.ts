@@ -25,6 +25,9 @@ function required(name: string, devFallback?: string): string {
 /** This server's own origin, where OAuth providers send their callbacks. */
 const apiOrigin = process.env.API_ORIGIN ?? `http://localhost:${Number(process.env.PORT ?? 4000)}`;
 
+/** The browser's origin. Hoisted because CORS and Stripe's return URLs share it. */
+const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:3000";
+
 /**
  * OAuth is optional. Each provider is enabled only when both its id and secret
  * are present, so a deployment without credentials boots exactly as before and
@@ -49,11 +52,32 @@ const oauth = {
       : null,
 } as const;
 
+/**
+ * Stripe is optional in the same way OAuth is.
+ *
+ * Without a secret key the billing routes still mount and still answer — plans
+ * are listed, the free tier meters normally, and only checkout itself reports
+ * that payments aren't configured. That ordering matters: `/pricing` is a page
+ * about the product, and a deployment with no Stripe account should render it
+ * rather than 500 on it.
+ *
+ * The webhook secret is separate because it can legitimately be absent while the
+ * key is present — a developer testing checkout before running `stripe listen`.
+ * Verification is not optional, though: a webhook that arrives with no secret
+ * configured to check it against is rejected, never trusted.
+ */
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? {
+      secretKey: process.env.STRIPE_SECRET_KEY,
+      webhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? null,
+    }
+  : null;
+
 export const config = {
   isProduction,
   port: Number(process.env.PORT ?? 4000),
   jwtSecret: required("JWT_SECRET", "underleaf-dev-secret-do-not-use-in-production"),
-  webOrigin: process.env.WEB_ORIGIN ?? "http://localhost:3000",
+  webOrigin,
   apiOrigin,
   cookieName: "underleaf_token",
   /** Seven days, in seconds and milliseconds. */
@@ -62,6 +86,23 @@ export const config = {
   oauth,
   /** True when at least one provider is fully configured. */
   oauthEnabled: Boolean(oauth.google || oauth.github),
+  stripe,
+  /** True when checkout can actually be started. */
+  stripeEnabled: Boolean(stripe),
+  /**
+   * Where Stripe returns the buyer, on each of its two exits.
+   *
+   * Both go to a page that already existed and can say something useful: success
+   * to settings, which is where the plan and its allowance live and which waits
+   * out the webhook before confirming, and cancelling back to pricing with the
+   * cards still on screen. Neither is a dedicated route whose only job would be
+   * to redirect to one of these.
+   *
+   * The checkout route appends `&plan=<key>` to the success URL so the page knows
+   * which plan to wait for — see the comment there for why it can't infer it.
+   */
+  billingSuccessUrl: `${webOrigin}/settings?checkout=success`,
+  billingCancelUrl: `${webOrigin}/pricing?checkout=cancelled`,
   /**
    * Where uploaded PDFs and their rendered page images live. Absolute so the
    * server's working directory can't move the store, and resolved once here so

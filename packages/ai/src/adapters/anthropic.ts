@@ -52,13 +52,33 @@ function mapStopReason(reason: StopReason | null): AiStopReason {
   }
 }
 
+/**
+ * Marks the system prompt and the tool schemas as cacheable (v5 Section 4).
+ *
+ * Both are byte-identical on every turn of every conversation — the resume
+ * itself travels in the messages, which are not cached — so they are exactly what
+ * a prompt cache is for. On a multi-round tool-calling turn this is the bulk of
+ * the prompt re-sent each round, and the chat assistant's eight tool schemas are
+ * not small.
+ *
+ * Two breakpoints, placed to match the order Anthropic assembles a prompt in
+ * (tools, then system, then messages): one after the tools, one after the system
+ * block. A prefix shorter than the model's minimum cacheable length is simply
+ * not cached rather than rejected, so this is safe to apply unconditionally and
+ * needs no per-purpose opt-in.
+ */
+const CACHE_CONTROL = { type: "ephemeral" } as const;
+
 function toAnthropicTools(tools: AiToolDef[]): Tool[] {
-  return tools.map((tool) => ({
+  return tools.map((tool, index) => ({
     name: tool.name,
     description: tool.description,
     // The JSON Schema is generated from Zod by `toolFromZod`, so the schema the
     // model is shown is the same object the arguments are validated against.
     input_schema: tool.parameters as Tool.InputSchema,
+    // Only the last one: a breakpoint caches everything *before* it, so marking
+    // every tool would spend the four-breakpoint budget describing one prefix.
+    ...(index === tools.length - 1 ? { cache_control: CACHE_CONTROL } : {}),
   }));
 }
 
@@ -152,7 +172,15 @@ export function createAnthropicAdapter(config: AiAdapterConfig): AiAdapter {
       model: config.modelName,
       max_tokens: request.maxTokens ?? DEFAULT_MAX_TOKENS,
       messages: toAnthropicMessages(request.messages),
-      ...(request.system ? { system: request.system } : {}),
+      // Sent as a one-block array rather than a bare string so it can carry a
+      // cache breakpoint; the API treats the two forms identically otherwise.
+      ...(request.system
+        ? {
+            system: [
+              { type: "text" as const, text: request.system, cache_control: CACHE_CONTROL },
+            ],
+          }
+        : {}),
       ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
       ...(request.tools?.length ? { tools: toAnthropicTools(request.tools) } : {}),
     };

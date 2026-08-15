@@ -26,7 +26,11 @@
     "ADMIN_EMAILS",
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
-    "AI_KEY_*"
+    "AI_KEY_*",
+    "STRIPE_SECRET_KEY",
+    "STRIPE_WEBHOOK_SECRET",
+    "STRIPE_PRICE_PRO_MONTHLY",
+    "STRIPE_PRICE_JOB_SEARCH_PASS"
   ],
   "tasks": {
     "db:generate": {

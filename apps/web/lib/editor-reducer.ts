@@ -33,6 +33,7 @@ export type EditorAction =
   // actually exists. `addPage` and `togglePageBreak` stay: a *forced* break is a
   // real intent, and the packer honours it.
   | { type: "addPage" }
+  | { type: "removeLastPage" }
   | { type: "togglePageBreak"; sectionId: string }
   /**
    * A document computed by the AI assistant, replacing content and theme wholesale.
@@ -199,6 +200,18 @@ function reduceDoc(doc: EditorDocument, action: EditorAction): EditorDocument {
       const section = createEmptySection("custom", doc.content.sections.length);
       section.pageBreakBefore = true;
       return { ...doc, content: { ...doc.content, sections: [...doc.content.sections, section] } };
+    }
+
+    case "removeLastPage": {
+      const ordered = [...doc.content.sections].sort((a, b) => a.order - b.order);
+      const breakIndex = ordered.findLastIndex((section) => section.pageBreakBefore);
+      // Pages created by natural content overflow are not stored objects and
+      // cannot be deleted without deleting arbitrary resume content.
+      if (breakIndex < 0) return doc;
+      return {
+        ...doc,
+        content: { ...doc.content, sections: renumber(ordered.slice(0, breakIndex)) },
+      };
     }
 
     case "togglePageBreak":

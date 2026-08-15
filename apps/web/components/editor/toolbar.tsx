@@ -1,7 +1,7 @@
 "use client";
 
-import type { PageSize, Theme } from "@repo/types";
-import { FONT_FAMILIES } from "@repo/types";
+import { FONT_CATALOG, type PageSize, type Theme } from "@repo/types";
+import { useMemo, useState } from "react";
 import { Button } from "../button";
 import { Logo } from "../logo";
 import type { SaveStatus } from "../../lib/use-autosave";
@@ -9,8 +9,8 @@ import { FieldLabel, IconButton, Popover, Segmented, Slider, SwatchRow, ToolbarD
 import { UserMenu } from "./user-menu";
 import { ThemeToggle } from "../theme-toggle";
 
-/** Human labels for the closed font enum; keys must match FONT_FAMILIES. */
-export const FONT_LABELS: Record<Theme["fontFamily"], string> = {
+/** Labels for the locally bundled fonts; catalog entries are humanized below. */
+export const FONT_LABELS: Record<string, string> = {
   inter: "Inter",
   lato: "Lato",
   roboto: "Roboto",
@@ -18,6 +18,10 @@ export const FONT_LABELS: Record<Theme["fontFamily"], string> = {
   "eb-garamond": "EB Garamond",
   merriweather: "Merriweather",
 };
+
+export function fontLabel(font: string) {
+  return FONT_LABELS[font] ?? font.split("-").map((part) => part[0]!.toUpperCase() + part.slice(1)).join(" ");
+}
 
 /**
  * Restrained, print-safe palette. Resumes are read by hiring teams and often
@@ -188,7 +192,7 @@ export function EditorToolbar({
           width={300}
           trigger={({ open, toggle }) => (
             <TriggerButton open={open} onClick={toggle}>
-              <span className="font-medium">{FONT_LABELS[theme.fontFamily]}</span>
+              <span className="font-medium">{fontLabel(theme.fontFamily)}</span>
             </TriggerButton>
           )}
         >
@@ -444,24 +448,27 @@ function FontPicker({
   value: Theme["fontFamily"];
   onChange: (value: Theme["fontFamily"]) => void;
 }) {
+  const [query, setQuery] = useState("");
+  const fonts = useMemo(() => FONT_CATALOG.filter((font) => fontLabel(font).toLowerCase().includes(query.toLowerCase())), [query]);
   return (
     <div>
       <FieldLabel>{label}</FieldLabel>
-      <div className="mt-2 grid grid-cols-2 gap-1">
-        {FONT_FAMILIES.map((family) => (
+      <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search fonts…" className="mt-2 h-8 w-full rounded-md border border-rule bg-paper px-2 text-sm outline-none focus:border-accent" />
+      <div className="mt-2 grid max-h-52 grid-cols-2 gap-1 overflow-y-auto">
+        {fonts.map((family) => (
           <button
             key={family}
             type="button"
             onClick={() => onChange(family)}
-            // Previewed in the actual vendored face, so the choice is honest.
-            style={{ fontFamily: `'Underleaf ${FONT_LABELS[family]}', serif` }}
+            // The document renderer loads remote catalog faces when selected.
+            style={{ fontFamily: `'${fontLabel(family)}', sans-serif` }}
             className={`rounded-md px-2 py-1.5 text-left text-sm transition-colors ${
               value === family
                 ? "bg-ink text-paper"
                 : "text-ink-muted hover:bg-paper-sunken hover:text-ink"
             }`}
           >
-            {FONT_LABELS[family]}
+            {fontLabel(family)}
           </button>
         ))}
       </div>

@@ -1,10 +1,9 @@
 import { z } from "zod";
 
 /**
- * Font families are a closed enum of families vendored as WOFF2 in
- * `packages/ui/src/resume/fonts`. Never a free string: the editor and the
- * Puppeteer export must resolve identical font bytes, so a family the renderer
- * doesn't ship has to be unrepresentable.
+ * The first six families are bundled for offline rendering. The schema also
+ * accepts safe catalog slugs so the editor can load the broader Google Fonts
+ * selection in both the browser and the PDF renderer.
  */
 export const FONT_FAMILIES = [
   "inter",
@@ -15,7 +14,17 @@ export const FONT_FAMILIES = [
   "merriweather",
 ] as const;
 
-export const fontFamilySchema = z.enum(FONT_FAMILIES);
+/** Searchable resume catalog, shared by document and selected-text controls. */
+export const FONT_CATALOG = [
+  "inter", "roboto", "open-sans", "lato", "montserrat", "poppins", "raleway", "nunito", "ubuntu", "work-sans",
+  "source-sans-3", "noto-sans", "rubik", "mulish", "manrope", "dm-sans", "quicksand", "karla", "barlow", "archivo",
+  "merriweather", "source-serif", "eb-garamond", "playfair-display", "lora", "libre-baskerville", "crimson-text", "bitter",
+  "noto-serif", "pt-serif", "roboto-slab", "zilla-slab", "cormorant-garamond", "spectral", "vollkorn", "cardo", "arvo",
+  "oswald", "bebas-neue", "anton", "abril-fatface", "lobster", "pacifico", "caveat", "dancing-script", "comfortaa",
+  "fira-sans", "fira-code", "source-code-pro", "roboto-mono", "space-mono", "inconsolata", "jetbrains-mono",
+] as const;
+
+export const fontFamilySchema = z.string().min(1).max(80).regex(/^[a-z0-9-]+$/);
 export type FontFamily = z.infer<typeof fontFamilySchema>;
 
 export const LAYOUTS = [

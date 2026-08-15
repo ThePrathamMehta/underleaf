@@ -10,6 +10,7 @@ import {
 import { z } from "zod";
 import { parseContent, parseTheme } from "../serializers.js";
 import { runChatTurn } from "./chat-agent.js";
+import { checkAndConsumeAiAction } from "./entitlements.js";
 
 /**
  * One assistant turn, delivered over server-sent events.
@@ -120,6 +121,23 @@ export type StreamTurnOptions = {
 
 export async function streamChatTurn(options: StreamTurnOptions): Promise<void> {
   const { res, resume, userId, message } = options;
+
+  /**
+   * Metered before anything else in the turn, and deliberately before the SSE
+   * headers are flushed.
+   *
+   * Order is the whole point: once `flushHeaders` has run the status is committed
+   * to 200 and a refusal could only be delivered as an in-band `error` event,
+   * which the panel would render as "the assistant broke" rather than "you're out
+   * of actions". Throwing here instead reaches the route's `asyncHandler` and
+   * becomes a real 402 carrying the live counter.
+   *
+   * Both metered chat surfaces come through this function — the chat box and
+   * "Apply with AI" — so one call site covers both, and neither can drift into
+   * being free.
+   */
+  const action = await checkAndConsumeAiAction(userId, "chat");
+
   const document = { content: parseContent(resume.content), theme: parseTheme(resume.theme) };
 
   const session = await prisma.chatSession.upsert({
@@ -163,6 +181,7 @@ export async function streamChatTurn(options: StreamTurnOptions): Promise<void> 
       history,
       message,
       userId,
+      planKey: action.planKey,
       signal: aborted.signal,
       onUpdate: (update) => {
         if (res.writableEnded) return;
@@ -202,7 +221,12 @@ export async function streamChatTurn(options: StreamTurnOptions): Promise<void> 
       if (turn.error) {
         send(res, { type: "error", code: turn.error.code, message: turn.error.message });
       }
-      send(res, { type: "done", messageId: assistant.id, summary: turnSummary(turn.outcomes) });
+      send(res, {
+        type: "done",
+        messageId: assistant.id,
+        summary: turnSummary(turn.outcomes),
+        usage: action.usage,
+      });
     }
   } catch (error) {
     console.error("Chat turn failed:", error);

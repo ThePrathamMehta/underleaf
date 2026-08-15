@@ -8,6 +8,7 @@ import {
   COVER_LETTER_TONES,
   COVER_LETTER_TONE_BLURBS,
   COVER_LETTER_TONE_LABELS,
+  type AiUsageDto,
   type CoverLetterDto,
   type CoverLetterSummary,
   type CoverLetterTone,
@@ -15,7 +16,9 @@ import {
 } from "@repo/types";
 import { api, ApiError } from "../../../../lib/api";
 import { useAuth } from "../../../../lib/auth-context";
+import { useUsage } from "../../../../lib/usage";
 import { useLetterAutosave } from "../../../../lib/use-letter-autosave";
+import { AllowanceMeter, AllowanceWall } from "../../../../components/allowance";
 import { Button, ButtonLink, buttonClass } from "../../../../components/button";
 import { FieldLabel } from "../../../../components/editor/controls";
 import { Logo } from "../../../../components/logo";
@@ -66,6 +69,9 @@ export default function CoverLetterPage({
   const [loadError, setLoadError] = useState<{ status: number; message: string } | null>(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Set when generation was refused for want of allowance. */
+  const [blocked, setBlocked] = useState<AiUsageDto | null>(null);
+  const { applyUsage } = useUsage();
 
   const aborter = useRef<AbortController | null>(null);
 
@@ -128,6 +134,7 @@ export default function CoverLetterPage({
 
       setGenerating(true);
       setError(null);
+      setBlocked(null);
 
       // A queued edit would otherwise save the old body back over the new letter
       // a beat after it arrives.
@@ -161,6 +168,9 @@ export default function CoverLetterPage({
         setBody(response.letter.content);
         setTone(response.letter.tone);
         setReusedJd(response.reusedJobDescription);
+        // Always present on a generate: there's no deterministic half to fall
+        // back to here, so a letter that exists is an action that was spent.
+        applyUsage(response.usage);
         if (response.reusedJobDescription && response.letter.jobDescriptionText) {
           setJobDescription(response.letter.jobDescriptionText);
         }
@@ -178,6 +188,15 @@ export default function CoverLetterPage({
         });
       } catch (caught: unknown) {
         if (caught instanceof DOMException && caught.name === "AbortError") return;
+
+        // Refused for want of allowance: replace the button's dead click with
+        // the inline wall, exactly where the letter would have appeared.
+        if (caught instanceof ApiError && caught.isAllowanceExhausted && caught.usage) {
+          applyUsage(caught.usage);
+          setBlocked(caught.usage);
+          return;
+        }
+
         setError(
           caught instanceof ApiError
             ? caught.message
@@ -188,7 +207,7 @@ export default function CoverLetterPage({
         setGenerating(false);
       }
     },
-    [generating, isDirty, jobDescription, letter, resumeId, reset, saveNow, tone],
+    [generating, isDirty, jobDescription, letter, resumeId, reset, saveNow, tone, applyUsage],
   );
 
   /**
@@ -248,6 +267,7 @@ export default function CoverLetterPage({
           reusedJd={reusedJd}
           generating={generating}
           hasLetter={letter !== null}
+          blocked={blocked}
           onToneChange={changeTone}
           onJobDescriptionChange={(value) => {
             setJobDescription(value);
@@ -382,6 +402,7 @@ function SourcePane({
   reusedJd,
   generating,
   hasLetter,
+  blocked,
   onToneChange,
   onJobDescriptionChange,
   onGenerate,
@@ -392,6 +413,8 @@ function SourcePane({
   reusedJd: boolean;
   generating: boolean;
   hasLetter: boolean;
+  /** Non-null once generation was refused for want of allowance. */
+  blocked: AiUsageDto | null;
   onToneChange: (tone: CoverLetterTone) => void;
   onJobDescriptionChange: (value: string) => void;
   onGenerate: () => void;
@@ -469,14 +492,16 @@ function SourcePane({
       </div>
 
       <div className="border-t border-rule p-3">
+        {blocked && <AllowanceWall usage={blocked} className="mb-3" />}
         <Button size="sm" className="w-full" onClick={onGenerate} disabled={generating}>
           {generating ? "Writing…" : hasLetter ? "Regenerate" : "Write the letter"}
         </Button>
-        {hasLetter && (
+        {hasLetter && !blocked && (
           <p className="mt-2 text-center text-[0.6875rem] leading-snug text-ink-faint">
             Regenerating replaces the letter, including any edits you&rsquo;ve made.
           </p>
         )}
+        <AllowanceMeter className="mt-2 text-center" />
       </div>
     </aside>
   );

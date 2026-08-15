@@ -15,7 +15,7 @@ type FontDefinition = {
  * resolve byte-identical files. Family names are shared across both paths; only
  * the `src` differs (URL in the browser, base64 in the export).
  */
-export const FONT_DEFINITIONS: Record<Theme["fontFamily"], FontDefinition> = {
+export const FONT_DEFINITIONS: Record<string, FontDefinition> = {
   inter: {
     family: "Underleaf Inter",
     source: "@fontsource/inter",
@@ -118,5 +118,5 @@ export function fontFacesFromBase64(
 /** The theme's body and heading families, de-duplicated when they're the same. */
 function uniqueDefinitions(theme: Theme): FontDefinition[] {
   const keys = new Set<Theme["fontFamily"]>([theme.fontFamily, theme.headingFontFamily]);
-  return [...keys].map((key) => FONT_DEFINITIONS[key]);
+  return [...keys].flatMap((key) => FONT_DEFINITIONS[key] ? [FONT_DEFINITIONS[key]!] : []);
 }

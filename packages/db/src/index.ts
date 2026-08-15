@@ -63,4 +63,7 @@ export type {
   AtsScoreResult,
   JdComparison,
   CoverLetter,
+  Plan,
+  Subscription,
+  UserAiUsage,
 } from "@prisma/client";

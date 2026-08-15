@@ -8,11 +8,14 @@ import {
   AI_PROVIDERS,
   AI_PROVIDER_LABELS,
   AI_PURPOSE_LABELS,
+  PLAN_KEYS,
+  PLAN_LABELS,
   type AiConfigResponse,
   type AiProvider,
   type AiProviderConfigDto,
   type AiPurpose,
   type AiSecretRefDto,
+  type PlanKey,
 } from "@repo/types";
 import { api, ApiError } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth-context";
@@ -28,6 +31,12 @@ import { Segmented } from "../../../components/editor/controls";
  * "what configurations exist". Each purpose gets one card showing the model
  * serving it today and a form to change it.
  *
+ * v5 adds a second axis: a tier. The page still shows one card per purpose, for
+ * the tier selected at the top — routing free-tier chat to a cheaper model than
+ * paid chat is a cost decision, and making it a mode switch rather than four
+ * more fields per card keeps the common case (one model for everyone) looking
+ * exactly as it did.
+ *
  * What this page cannot do, by construction: display or accept an API key. Keys
  * live in the server's environment; the picker below chooses which environment
  * variable a purpose reads, and the server never sends a value back.
@@ -35,6 +44,19 @@ import { Segmented } from "../../../components/editor/controls";
 
 /** The four features, then the catch-all — the order the cards render in. */
 const PURPOSE_ORDER: AiPurpose[] = [...AI_FEATURE_PURPOSES, "all"];
+
+/**
+ * The tier axis. `null` is the default and means "every tier", which is what a
+ * deployment that never touches this has — and why the first option is first.
+ */
+const TIER_OPTIONS: { value: string; label: string }[] = [
+  { value: "any", label: "All tiers" },
+  ...PLAN_KEYS.map((key) => ({ value: key, label: PLAN_LABELS[key] })),
+];
+
+function toPlanKey(value: string): PlanKey | null {
+  return value === "any" ? null : (value as PlanKey);
+}
 
 const PURPOSE_HINTS: Record<AiPurpose, string> = {
   chat: "Edits the resume through tool calls. Benefits most from a strong model.",
@@ -72,6 +94,8 @@ export default function AiSettingsPage() {
   const [data, setData] = useState<AiConfigResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
+  /** Which tier's rows the cards below are editing. "any" is the v4 behaviour. */
+  const [tier, setTier] = useState("any");
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login?next=/admin/ai-settings");
@@ -180,16 +204,33 @@ export default function AiSettingsPage() {
           <>
             <SecretRefSummary refs={data.availableSecretRefs} />
 
+            <section className="mt-6 rounded-xl bg-paper-sunken p-5 ring-1 ring-inset ring-rule">
+              <Segmented label="Tier" options={TIER_OPTIONS} value={tier} onChange={setTier} />
+              <p className="mt-3 max-w-[62ch] text-[0.875rem] leading-relaxed text-ink-muted text-pretty">
+                {tier === "any"
+                  ? "These models answer every tier. Leave it here unless you want a cheaper model for free users — a deployment that never sets a tier behaves exactly as it did before."
+                  : `Only for ${PLAN_LABELS[tier as PlanKey]}. A request from this tier prefers the model set here and falls back to the “All tiers” one when there isn't a match.`}
+              </p>
+            </section>
+
             <div className="mt-6 space-y-6">
               {PURPOSE_ORDER.map((purpose) => {
-                const config = activeConfigFor(data.configs, purpose);
+                const planKey = toPlanKey(tier);
+                const config = activeConfigFor(data.configs, purpose, planKey);
                 return (
                   <PurposeCard
                     // Keyed by row id so a reload after saving remounts the form
                     // onto the saved values instead of leaving stale local edits.
-                    key={`${purpose}:${config?.id ?? "none"}`}
+                    // The tier is in the key too: switching tiers is a different
+                    // row, and reusing the form state would silently carry one
+                    // tier's edits into another's save.
+                    key={`${purpose}:${tier}:${config?.id ?? "none"}`}
                     purpose={purpose}
+                    planKey={planKey}
                     config={config}
+                    fallback={
+                      planKey ? activeConfigFor(data.configs, purpose, null) : null
+                    }
                     secretRefs={data.availableSecretRefs}
                   />
                 );
@@ -202,14 +243,21 @@ export default function AiSettingsPage() {
   );
 }
 
-/** The active row targeting this purpose exactly. `all` is a fallback at call
- * time, not a substitute here — a card should show what *it* is configured
- * with, so an empty card reads as "falls back", which is the truth. */
+/** The active row targeting this purpose and tier exactly. Neither `all` nor the
+ * tier-agnostic row is substituted here — they are fallbacks at call time, and a
+ * card should show what *it* is configured with, so an empty card reads as
+ * "falls back", which is the truth. */
 function activeConfigFor(
   configs: AiProviderConfigDto[],
   purpose: AiPurpose,
+  planKey: PlanKey | null,
 ): AiProviderConfigDto | null {
-  return configs.find((config) => config.purpose === purpose && config.isActive) ?? null;
+  return (
+    configs.find(
+      (config) =>
+        config.purpose === purpose && config.isActive && (config.planKey ?? null) === planKey,
+    ) ?? null
+  );
 }
 
 // --- Keys ---
@@ -260,11 +308,16 @@ function SecretRefSummary({ refs }: { refs: AiSecretRefDto[] }) {
 
 function PurposeCard({
   purpose,
+  planKey,
   config,
+  fallback,
   secretRefs,
 }: {
   purpose: AiPurpose;
+  planKey: PlanKey | null;
   config: AiProviderConfigDto | null;
+  /** The tier-agnostic row this tier would fall back to, when viewing a tier. */
+  fallback: AiProviderConfigDto | null;
   secretRefs: AiSecretRefDto[];
 }) {
   /**
@@ -312,6 +365,7 @@ function PurposeCard({
         modelName: modelName.trim(),
         apiKeySecretRef: secretRef,
         purpose,
+        planKey,
         isActive: true,
         baseUrl: baseUrl.trim() ? baseUrl.trim() : null,
       });
@@ -335,7 +389,7 @@ function PurposeCard({
             {PURPOSE_HINTS[purpose]}
           </p>
         </div>
-        <CurrentModelBadge config={current} />
+        <CurrentModelBadge config={current} fallback={fallback} />
       </div>
 
       <form onSubmit={save} className="mt-6 space-y-4" noValidate>
@@ -457,11 +511,22 @@ function PurposeCard({
   );
 }
 
-function CurrentModelBadge({ config }: { config: AiProviderConfigDto | null }) {
+function CurrentModelBadge({
+  config,
+  fallback,
+}: {
+  config: AiProviderConfigDto | null;
+  fallback: AiProviderConfigDto | null;
+}) {
   if (!config) {
     return (
-      <span className="shrink-0 rounded-md bg-paper-sunken px-2.5 py-1 text-[0.75rem] text-ink-faint ring-1 ring-inset ring-rule">
-        Falls back
+      <span
+        className="shrink-0 rounded-md bg-paper-sunken px-2.5 py-1 text-[0.75rem] text-ink-faint ring-1 ring-inset ring-rule"
+        // Naming the model it falls back to, because "falls back" on its own
+        // leaves an admin comparing tiers with no idea what this one costs.
+        title={fallback ? `Uses ${fallback.modelName}, set under All tiers` : undefined}
+      >
+        {fallback ? `Falls back · ${fallback.modelName}` : "Falls back"}
       </span>
     );
   }

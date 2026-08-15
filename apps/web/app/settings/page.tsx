@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth-context";
-import { Button } from "../../components/button";
+import { useUsage } from "../../lib/usage";
+import { Button, ButtonLink } from "../../components/button";
 import { SiteHeader } from "../../components/site-header";
 
 /**
@@ -63,12 +64,288 @@ export default function SettingsPage() {
         </header>
 
         <div className="mt-12 space-y-6">
+          <MembershipSection key={`billing-${user.id}`} />
           <ProfileSection key={`profile-${user.id}`} />
           <PasswordSection key={`password-${user.id}`} />
           <DangerSection key={`danger-${user.id}`} onDeleted={() => setUser(null)} />
         </div>
       </main>
     </>
+  );
+}
+
+// --- Membership ---
+
+/** Where a returning buyer is in the wait for their webhook. */
+type Settling = "waiting" | "confirmed" | "slow" | null;
+
+/**
+ * The plan and the AI allowance it carries.
+ *
+ * Reads from `useUsage`, the same counter the metered panels spend from, so this
+ * section can't disagree with the chat panel a tab away about how many actions
+ * are left. Cancellation is Stripe's job — the direct call exists only for a
+ * subscription whose portal can't be opened — so the primary action is a portal
+ * link, and the button that might otherwise live here is deliberately absent
+ * until there is a portal to point at.
+ *
+ * This is also where Checkout lands on success, which is the reason for the
+ * settling state below.
+ */
+function MembershipSection() {
+  const { user } = useAuth();
+  const { subscription, loading, refresh, setSubscription } = useUsage();
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [settling, setSettling] = useState<Settling>(null);
+
+  /**
+   * The last leg of a purchase.
+   *
+   * Stripe sends the browser back the moment it has the money, and the webhook
+   * that actually grants the plan is a separate request racing it — usually
+   * ahead, occasionally behind by a second or two. Reading once and rendering
+   * whatever came back would show a fresh Pro buyer the words "Free" on the page
+   * they were sent to as confirmation, which is the worst possible moment to be
+   * wrong. So it re-reads until the plan it was told to expect appears, and says
+   * it's checking while it does.
+   *
+   * Bounded, and honest when the bound is reached: a webhook that hasn't landed
+   * in ten seconds may still land, and the payment is real either way, so the
+   * timeout copy reassures rather than apologises. Nothing here grants anything —
+   * it only decides which sentence to render.
+   */
+  useEffect(() => {
+    if (!user) return;
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") !== "success") return;
+
+    const expected = params.get("plan");
+    // Dropped from the URL immediately: a reload of a page that says "confirming
+    // your payment" should not start confirming a payment again.
+    window.history.replaceState({}, "", "/settings");
+
+    let abandoned = false;
+    setSettling("waiting");
+
+    void (async () => {
+      for (let attempt = 0; attempt < 6 && !abandoned; attempt += 1) {
+        const current = await refresh();
+        // No expected plan means an older checkout link, or a hand-typed URL.
+        // Anything paid is treated as arrival then, which is the best this can
+        // do without knowing what was bought.
+        const arrived = expected
+          ? current?.planKey === expected
+          : Boolean(current && current.planKey !== "free");
+
+        if (arrived) {
+          if (!abandoned) setSettling("confirmed");
+          return;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 1600));
+      }
+
+      if (!abandoned) setSettling("slow");
+    })();
+
+    return () => {
+      abandoned = true;
+    };
+  }, [refresh, user]);
+
+  if (!user) return null;
+
+  async function manageBilling() {
+    setError(null);
+    setWorking(true);
+    try {
+      const { url } = await api.billingPortal();
+      window.location.href = url;
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Could not open billing.");
+      setWorking(false);
+    }
+  }
+
+  async function cancel() {
+    setError(null);
+    setWorking(true);
+    try {
+      const { subscription: updated } = await api.cancelSubscription();
+      setSubscription(updated);
+      setConfirmCancel(false);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Could not cancel your subscription.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  const plan = subscription?.planName ?? null;
+  const usage = subscription?.usage ?? null;
+
+  // The counter that failed to load renders as nothing at all — same honesty as
+  // the panels: "no number" beats a "0 left" that wasn't true.
+  const allowanceLine =
+    usage && (subscription?.planKey !== "free" || usage.granted > 0)
+      ? `You have ${usage.remaining} of ${usage.granted} AI actions left${
+          subscription?.planKey === "free" ? " this account" : ""
+        }.`
+      : null;
+
+  const cancelled = subscription?.cancelAtPeriodEnd === true;
+  const periodLine =
+    subscription?.currentPeriodEnd && subscription.planKey !== "free"
+      ? cancelled
+        ? `Your access runs to ${date(subscription.currentPeriodEnd)} and ends then.`
+        : subscription.planKey === "pro_monthly"
+          ? `Renews ${date(subscription.currentPeriodEnd)}.`
+          : `Your pass ends ${date(subscription.currentPeriodEnd)}.`
+      : null;
+
+  return (
+    <Section
+      title="Membership"
+      description="The plan that meters your AI actions, and what it costs when it renews."
+    >
+      {loading ? (
+        <div className="space-y-4">
+          <div className="h-11 animate-pulse rounded-lg bg-paper-sunken" />
+          <div className="h-11 animate-pulse rounded-lg bg-paper-sunken" />
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <CheckoutOutcome settling={settling} plan={plan} />
+
+          <dl className="rounded-lg bg-paper-sunken/60 px-4 py-3.5">
+            <dt className="font-mono text-[0.625rem] uppercase tracking-[0.14em] text-ink-faint">
+              Plan
+            </dt>
+            <dd className="mt-0.5 font-display text-xl tracking-tight text-ink">
+              {plan ?? "…"}
+            </dd>
+            <dd className="mt-0.5 text-sm text-ink-muted">
+              {allowanceLine ?? "The AI allowance is unavailable right now."}
+            </dd>
+            {periodLine && <dd className="mt-1 text-sm text-ink-muted">{periodLine}</dd>}
+          </dl>
+
+          {error && <Alert>{error}</Alert>}
+
+          <div className="flex flex-wrap items-center gap-3">
+            {subscription?.canManageBilling && (
+              <Button variant="secondary" size="md" onClick={manageBilling} disabled={working}>
+                {working ? "Opening…" : "Manage billing"}
+              </Button>
+            )}
+
+            {subscription?.planKey === "free" && (
+              <ButtonLink href="/pricing" variant="primary" size="md">
+                Upgrade
+              </ButtonLink>
+            )}
+
+            {subscription?.planKey !== "free" && (
+              <ButtonLink href="/pricing" variant="ghost" size="md">
+                Compare plans
+              </ButtonLink>
+            )}
+          </div>
+
+          {subscription?.canManageBilling &&
+            subscription.status === "active" &&
+            subscription.planKey !== "free" && (
+              <AnimatePresence initial={false} mode="wait">
+                {!confirmCancel ? (
+                  <motion.div
+                    key="cancel"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                  >
+                    <Button
+                      variant="ghost"
+                      size="md"
+                      onClick={() => setConfirmCancel(true)}
+                      disabled={working}
+                      className="text-ink-muted hover:text-danger"
+                    >
+                      Cancel subscription
+                    </Button>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="confirm"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                    className="overflow-hidden"
+                  >
+                    <div className="space-y-3">
+                      <p className="text-sm leading-relaxed text-ink-muted">
+                        Your plan stays active to {subscription.currentPeriodEnd ? date(subscription.currentPeriodEnd) : "the end of this period"} — you
+                        keep every AI action still left — and then ends. No refunds, no
+                        charges after.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <Button
+                          variant="ghost"
+                          size="md"
+                          onClick={() => setConfirmCancel(false)}
+                          disabled={working}
+                        >
+                          Keep my plan
+                        </Button>
+                        <Button variant="danger" size="md" onClick={cancel} disabled={working}>
+                          {working ? "Cancelling…" : "Cancel my subscription"}
+                        </Button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            )}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+/**
+ * What to say to somebody Stripe just sent back.
+ *
+ * Three sentences for three genuinely different situations, and none of them is
+ * an error: the wait, the confirmation, and the case where the webhook is taking
+ * longer than anyone wants to stare at a page for. The last one matters most —
+ * the payment went through, so it must not read as a failure, and it must not
+ * claim the plan is active when this component can see that it isn't yet.
+ */
+function CheckoutOutcome({ settling, plan }: { settling: Settling; plan: string | null }) {
+  if (!settling) return null;
+
+  const copy =
+    settling === "waiting"
+      ? "Payment received — confirming it with Stripe…"
+      : settling === "confirmed"
+        ? `You're on ${plan ?? "your new plan"}. Your AI actions are ready to use.`
+        : "Payment received. Stripe hasn't confirmed it to us yet, so your plan below may still show the old one — it updates by itself, usually within a minute. Nothing was lost.";
+
+  return (
+    <motion.p
+      role="status"
+      initial={{ opacity: 0, y: -4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+      className={`rounded-lg px-4 py-3 text-sm leading-relaxed text-pretty ${
+        settling === "confirmed" ? "bg-positive-wash text-positive" : "bg-accent-wash text-accent"
+      }`}
+    >
+      {copy}
+    </motion.p>
   );
 }
 
@@ -454,4 +731,13 @@ function providerName(provider: string | null): string {
 
 function memberSince(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+
+/** A renewal or expiry date: the day matters here, unlike "member since". */
+function date(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
 }

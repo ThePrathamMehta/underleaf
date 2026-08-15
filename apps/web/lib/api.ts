@@ -1,6 +1,7 @@
 import type {
   AiConfigResponse,
   AiProviderConfigDto,
+  AiUsageDto,
   AtsHistoryEntry,
   AtsScoreResponse,
   ChangePasswordBody,
@@ -10,17 +11,20 @@ import type {
   CoverLetterDto,
   CoverLetterListResponse,
   CoverLetterResponse,
+  CreateCheckoutBody,
   DeleteAccountBody,
   GenerateCoverLetterBody,
   JdCompareResponse,
   JdComparisonSummary,
   PdfDocumentDto,
   PdfDocumentSummaryDto,
+  PlanDto,
   ProfessionDto,
   PublicUser,
   RenamePdfDocumentBody,
   ResumeWithTemplateDto,
   SendChatBody,
+  SubscriptionDto,
   TemplateDto,
   UpdateCoverLetterBody,
   UpdatePdfTextRunBody,
@@ -28,6 +32,7 @@ import type {
   UpdateResumeBody,
   UpsertAiConfigBody,
 } from "@repo/types";
+import { ALLOWANCE_EXHAUSTED } from "@repo/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -36,9 +41,22 @@ export class ApiError extends Error {
     readonly status: number,
     message: string,
     readonly details?: Array<{ path: string; message: string }>,
+    /**
+     * The machine-readable half of the body, when there is one. Only
+     * `allowance_exhausted` (402) sets these today: `usage` is the counter as the
+     * server saw it, so a panel can render "0 of 10 left" and an upgrade link
+     * beside the message instead of the message alone (v5 Section 6).
+     */
+    readonly code?: string,
+    readonly usage?: AiUsageDto,
   ) {
     super(message);
     this.name = "ApiError";
+  }
+
+  /** True when this request was refused for want of allowance, not for a fault. */
+  get isAllowanceExhausted(): boolean {
+    return this.status === 402 && this.code === ALLOWANCE_EXHAUSTED;
   }
 }
 
@@ -72,6 +90,8 @@ async function request<T>(
       response.status,
       payload?.error ?? `Request failed with status ${response.status}`,
       payload?.details,
+      payload?.code,
+      payload?.usage,
     );
   }
 
@@ -147,10 +167,16 @@ export async function* streamRequest<T>(
   if (!response.ok) {
     const isJson = (response.headers.get("content-type") ?? "").includes("application/json");
     const payload = isJson ? await response.json() : null;
+    // A refusal for want of allowance lands here rather than as an in-band
+    // `error` event: the server meters before it flushes headers, precisely so
+    // the status line can still say 402 and the panel can render an upgrade
+    // prompt instead of an empty assistant turn.
     throw new ApiError(
       response.status,
       payload?.error ?? `Request failed with status ${response.status}`,
       payload?.details,
+      payload?.code,
+      payload?.usage,
     );
   }
 
@@ -474,5 +500,47 @@ export const api = {
   /** Absolute URL so the browser can navigate to it for a file download. */
   coverLetterExportUrl(letterId: string) {
     return `${API_URL}/cover-letters/${letterId}/export.pdf`;
+  },
+
+  // --- Billing & membership (v5) ---
+
+  /**
+   * Public: `/pricing` renders for signed-out visitors, so this never requires
+   * an auth cookie. `paymentsEnabled` is the API telling the page whether the
+   * Stripe key is configured — the page renders disabled buttons with a reason
+   * instead of buttons that fail on click.
+   */
+  plans(signal?: AbortSignal) {
+    return request<{ plans: PlanDto[]; paymentsEnabled: boolean }>("/billing/plans", { signal });
+  },
+
+  /**
+   * Starts hosted Checkout and returns the URL to send the browser to. The body
+   * names a plan by key; the amount is decided entirely by the server.
+   */
+  checkout(body: CreateCheckoutBody) {
+    return request<{ url: string }>("/billing/checkout", { method: "POST", body });
+  },
+
+  /**
+   * The caller's membership and live allowance, through the same resolution the
+   * metered routes use — so the counter here is the counter the next AI action
+   * will be checked against.
+   */
+  subscription(signal?: AbortSignal) {
+    return request<{ subscription: SubscriptionDto }>("/billing/subscription", { signal });
+  },
+
+  /** Cancels at period end. Access continues to `currentPeriodEnd`, then stops. */
+  cancelSubscription() {
+    return request<{ subscription: SubscriptionDto }>("/billing/cancel", { method: "POST" });
+  },
+
+  /**
+   * A Customer Portal session URL — payment methods, invoices, and cancelling
+   * happen on Stripe's pages, not ours.
+   */
+  billingPortal() {
+    return request<{ url: string }>("/billing/portal", { method: "POST" });
   },
 };

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { aiUsageSchema } from "./billing";
 
 /**
  * Wire types for job-description matching.
@@ -78,6 +79,13 @@ export const jdCompareResponseSchema = z.object({
   comparison: jdComparisonSchema,
   /** Non-null when the AI half failed; the keyword diff still ran. */
   aiError: z.string().nullable(),
+  /**
+   * The allowance after this comparison (v5 Section 6).
+   *
+   * Absent when no action was spent — a resume already matching every term in
+   * the posting takes the deterministic path and never reaches a provider.
+   */
+  usage: aiUsageSchema.optional(),
 });
 
 export type JdCompareResponse = z.infer<typeof jdCompareResponseSchema>;

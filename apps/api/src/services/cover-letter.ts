@@ -4,6 +4,7 @@ import { resumeOutline } from "@repo/scoring";
 import {
   COVER_LETTER_TONE_BLURBS,
   type CoverLetterTone,
+  type PlanKey,
   type ResumeContent,
 } from "@repo/types";
 
@@ -53,6 +54,8 @@ export type GenerateLetterOptions = {
   /** The posting, when there is one. */
   jobDescriptionText: string | null;
   userId: string;
+  /** The caller's tier, so `resolveModel` can route it (v5 Section 4). */
+  planKey?: PlanKey | null;
 };
 
 /**
@@ -96,7 +99,7 @@ export async function generateCoverLetter(options: GenerateLetterOptions): Promi
 
   try {
     const completion = await complete(
-      { purpose: "coverLetter", userId: options.userId },
+      { purpose: "coverLetter", userId: options.userId, planKey: options.planKey },
       { system: SYSTEM_PROMPT, messages: [{ role: "user", content: prompt }] },
     );
 

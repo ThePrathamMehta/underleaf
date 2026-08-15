@@ -14,6 +14,7 @@ import { jdRouter } from "./routes/jd.js";
 import { coverLettersRouter, resumeCoverLettersRouter } from "./routes/cover-letters.js";
 import { pdfsRouter } from "./routes/pdfs.js";
 import { adminRouter } from "./routes/admin.js";
+import { billingRouter } from "./routes/billing.js";
 import { closeBrowser } from "./services/pdf.js";
 
 const app = express();
@@ -26,6 +27,11 @@ app.use(
     credentials: true,
   }),
 );
+// Before the JSON parser, and only for this path. Stripe signs the exact bytes
+// it sent, and `JSON.parse` followed by a re-stringify does not reproduce them —
+// so the webhook needs the untouched Buffer while every other route needs the
+// parsed body. Mount order is what separates them; this cannot move below.
+app.use("/billing/webhook", express.raw({ type: "application/json" }));
 // Resume documents are sizeable JSON; the default 100kb limit rejects autosaves.
 app.use(express.json({ limit: "2mb" }));
 app.use(cookieParser());
@@ -59,6 +65,7 @@ app.use("/resumes", jdRouter);
 app.use("/resumes", resumeCoverLettersRouter);
 app.use("/cover-letters", coverLettersRouter);
 app.use("/pdfs", pdfsRouter);
+app.use("/billing", billingRouter);
 app.use("/admin", adminRouter);
 
 app.use((_req, res) => {

@@ -14,6 +14,7 @@ import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 import { asyncHandler, notFound, validateBody } from "../middleware/errors.js";
 import { parseContent } from "../serializers.js";
 import { streamChatTurn } from "../services/chat-stream.js";
+import { checkAndConsumeAiAction, refundAiAction } from "../services/entitlements.js";
 import { compareToJd } from "../services/jd-match.js";
 import { findOwnedResume } from "./resumes.js";
 
@@ -86,11 +87,22 @@ jdRouter.post(
     const { jobDescriptionText } = req.body as { jobDescriptionText: string };
     const resume = await findOwnedResume(req.params.id!, req.userId);
 
+    // Consumed before the call, refunded below if the AI half never ran. Checking
+    // first is what makes the limit a limit — deciding afterwards would mean the
+    // provider was already paid by the time we noticed the user was out.
+    const action = await checkAndConsumeAiAction(req.userId, "jdMatch");
+
     const outcome = await compareToJd({
       content: parseContent(resume.content),
       jobDescriptionText,
       userId: req.userId,
+      planKey: action.planKey,
     });
+
+    // The keyword diff is free: it is arithmetic over two strings. So a posting
+    // the resume already matches, and a provider that was unreachable, both give
+    // the action back rather than charging for a deterministic result.
+    const usage = outcome.aiRan ? action.usage : await refundAiAction(req.userId);
 
     // Stored even when the AI half failed. The keyword diff is the part the
     // cover letter and the history list read back, and it ran.
@@ -105,7 +117,7 @@ jdRouter.post(
       },
     });
 
-    res.json({ comparison: serializeComparison(row), aiError: outcome.aiError });
+    res.json({ comparison: serializeComparison(row), aiError: outcome.aiError, usage });
   }),
 );
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { planKeySchema } from "./billing";
 
 /**
  * Wire types for the v4 AI layer: which provider and model answer a given kind
@@ -80,6 +81,15 @@ export const aiProviderConfigSchema = z.object({
   /** Whether that env var is actually set on the server right now. */
   apiKeyConfigured: z.boolean(),
   purpose: aiPurposeSchema,
+  /**
+   * Which tier this row serves, or null for "any tier" (v5 Section 4).
+   *
+   * The point is cost: free-tier chat can be routed to a cheaper model than paid
+   * chat while the metering above stays identical. Null is not a wildcard
+   * override but a *fallback* — an exact `(purpose, plan)` row wins, and a
+   * deployment that never sets this behaves exactly as v4 did.
+   */
+  planKey: planKeySchema.nullable(),
   isActive: z.boolean(),
   baseUrl: z.string().nullable(),
   updatedAt: z.string(),
@@ -135,6 +145,7 @@ export const upsertAiConfigBodySchema = z
     modelName: modelNameSchema,
     apiKeySecretRef: secretRefSchema,
     purpose: aiPurposeSchema,
+    planKey: planKeySchema.nullable().optional(),
     isActive: z.boolean().default(true),
     baseUrl: z.string().url().max(300).nullable().optional(),
   })

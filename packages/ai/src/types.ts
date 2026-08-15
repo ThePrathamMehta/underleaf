@@ -1,4 +1,4 @@
-import type { AiProvider, AiPurpose } from "@repo/types";
+import type { AiProvider, AiPurpose, PlanKey } from "@repo/types";
 import type { AiErrorCode } from "./errors";
 
 /**
@@ -148,4 +148,13 @@ export type AiCallContext = {
   purpose: AiPurpose;
   /** Null for a call made outside any user's session. */
   userId?: string | null;
+  /**
+   * The caller's membership tier, used to pick the model (v5 Section 4).
+   *
+   * Omitted or null resolves plan-agnostically, which is what every pre-v5
+   * caller did and still does. This never affects *whether* a call is allowed —
+   * that decision belongs to `checkAndConsumeAiAction` in the API, before the
+   * request reaches this layer at all.
+   */
+  planKey?: PlanKey | null;
 };

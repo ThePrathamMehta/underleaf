@@ -28,6 +28,10 @@ export function SiteHeader() {
             Edit a PDF
           </NavLink>
 
+          <NavLink href="/pricing" active={pathname === '/pricing'}>
+            Pricing
+          </NavLink>
+
           {loading ? (
             // Reserve the space so the header doesn't jolt when auth resolves.
             <div className="ml-2 h-10 w-[13rem]" aria-hidden />

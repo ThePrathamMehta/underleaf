@@ -13,6 +13,7 @@ import {
   atsSeveritySchema,
   type AtsCategoryScores,
   type AtsIssue,
+  type PlanKey,
   type ResumeContent,
   type Theme,
 } from "@repo/types";
@@ -142,9 +143,10 @@ async function runAiAssessment(
   facts: ResumeFacts,
   ruleIssues: AtsIssue[],
   userId: string,
+  planKey: PlanKey | null | undefined,
 ): Promise<AiAssessment> {
   const completion = await complete(
-    { purpose: "ats", userId },
+    { purpose: "ats", userId, planKey },
     {
       system: SYSTEM_PROMPT,
       messages: [
@@ -201,6 +203,8 @@ export async function scoreResume(options: {
   theme: Theme;
   templateSlug: string;
   userId: string;
+  /** The caller's tier, which decides which model runs the AI half. */
+  planKey?: PlanKey | null;
 }): Promise<ScoreOutcome> {
   const rules = scoreDocument(options.content, options.theme, options.templateSlug);
 
@@ -208,7 +212,13 @@ export async function scoreResume(options: {
   let aiError: string | null = null;
 
   try {
-    assessment = await runAiAssessment(options.content, rules.facts, rules.issues, options.userId);
+    assessment = await runAiAssessment(
+      options.content,
+      rules.facts,
+      rules.issues,
+      options.userId,
+      options.planKey,
+    );
   } catch (error) {
     aiError = toAiError(error).message;
   }

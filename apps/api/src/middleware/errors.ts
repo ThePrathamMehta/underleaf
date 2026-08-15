@@ -9,11 +9,20 @@ export function formatBytes(bytes: number): string {
   return `${mb >= 10 ? Math.round(mb) : Math.round(mb * 10) / 10}MB`;
 }
 
-/** An error with an intended HTTP status, thrown by route handlers. */
+/**
+ * An error with an intended HTTP status, thrown by route handlers.
+ *
+ * `body` merges extra fields into the JSON response alongside `error`. Only one
+ * thing needs it — a blocked metered request answers with a machine-readable
+ * `code` and the current allowance so the panel can render "0 of 10 left" inline
+ * rather than parsing the sentence — and a third constructor argument is a
+ * smaller change than a second error class the middleware has to know about.
+ */
 export class HttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly body?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "HttpError";
@@ -117,7 +126,8 @@ export function errorHandler(error: unknown, _req: Request, res: Response, _next
   }
 
   if (error instanceof HttpError) {
-    res.status(error.status).json({ error: error.message });
+    // `error` last so a stray `error` key in `body` can't replace the message.
+    res.status(error.status).json({ ...error.body, error: error.message });
     return;
   }
 

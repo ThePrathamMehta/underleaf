@@ -11,6 +11,7 @@ import {
 } from "@repo/types";
 import { asyncHandler, HttpError, badRequest, unauthorized, validateBody } from "../middleware/errors.js";
 import { clearAuthCookie, requireAuth, setAuthCookie, signToken, type AuthedRequest } from "../middleware/auth.js";
+import { ensureFreeSubscription } from "../services/entitlements.js";
 import { storage, storageKeys } from "../services/storage.js";
 
 export const authRouter = Router();
@@ -68,6 +69,10 @@ authRouter.post(
         passwordHash: await bcrypt.hash(password, BCRYPT_ROUNDS),
       },
     });
+
+    // Every account carries an explicit free-plan subscription from the moment it
+    // exists, so no read has to interpret the absence of one (v5 Section 2).
+    await ensureFreeSubscription(user.id);
 
     setAuthCookie(res, signToken(user.id));
     res.status(201).json({ user: toPublicUser(user) });

@@ -6,7 +6,7 @@ import {
   resumeOutline,
   type JdDiff,
 } from "@repo/scoring";
-import type { JdSuggestion, ResumeContent } from "@repo/types";
+import type { JdSuggestion, PlanKey, ResumeContent } from "@repo/types";
 import { z } from "zod";
 
 /**
@@ -101,6 +101,7 @@ async function runAiSuggestions(
   jobDescription: string,
   diff: JdDiff,
   userId: string,
+  planKey: PlanKey | null | undefined,
 ): Promise<z.infer<typeof suggestionsSchema>> {
   const gaps = diff.missing
     .slice(0, GAP_LIMIT)
@@ -108,7 +109,7 @@ async function runAiSuggestions(
     .join("\n");
 
   const completion = await complete(
-    { purpose: "jdMatch", userId },
+    { purpose: "jdMatch", userId, planKey },
     {
       system: SYSTEM_PROMPT,
       messages: [
@@ -154,19 +155,31 @@ export type CompareOutcome = {
   suggestions: JdSuggestion[];
   /** A specific, user-facing reason the AI half didn't run. Null when it did. */
   aiError: string | null;
+  /**
+   * Whether a provider call was actually made and answered.
+   *
+   * Distinct from `aiError === null`, which is also true for the zero-gaps
+   * short-circuit below — where no call happens at all. The metering in
+   * `routes/jd.ts` needs the difference: a perfectly-matched resume should cost
+   * nothing, and conflating "nothing to ask" with "asked and got an answer" would
+   * charge for the one case where we spent no tokens.
+   */
+  aiRan: boolean;
 };
 
 export async function compareToJd(options: {
   content: ResumeContent;
   jobDescriptionText: string;
   userId: string;
+  /** The caller's tier, which decides which model writes the suggestions. */
+  planKey?: PlanKey | null;
 }): Promise<CompareOutcome> {
   const diff = diffAgainstResume(options.content, options.jobDescriptionText);
 
   // Nothing missing is a real result, and asking a model to suggest closing zero
   // gaps would spend a call to be told so.
   if (diff.missing.length === 0) {
-    return { ...diff, suggestions: [], aiError: null };
+    return { ...diff, suggestions: [], aiError: null, aiRan: false };
   }
 
   try {
@@ -175,6 +188,7 @@ export async function compareToJd(options: {
       options.jobDescriptionText,
       diff,
       options.userId,
+      options.planKey,
     );
 
     // Only ids the resume actually has: a hallucinated ref would render as a
@@ -194,12 +208,13 @@ export async function compareToJd(options: {
         instruction: suggestion.instruction,
       }));
 
-    return { ...diff, suggestions, aiError: null };
+    return { ...diff, suggestions, aiError: null, aiRan: true };
   } catch (error) {
     return {
       ...diff,
       suggestions: fallbackSuggestions(options.content, diff),
       aiError: toAiError(error).message,
+      aiRan: false,
     };
   }
 }

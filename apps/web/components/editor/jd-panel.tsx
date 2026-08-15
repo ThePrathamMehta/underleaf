@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import type {
+  AiUsageDto,
   JdComparisonDto,
   JdComparisonSummary,
   JdKeyword,
@@ -11,6 +12,8 @@ import type {
   Theme,
 } from "@repo/types";
 import { api, ApiError } from "../../lib/api";
+import { useUsage } from "../../lib/usage";
+import { AllowanceMeter, AllowanceWall } from "../allowance";
 import { Button } from "../button";
 import { FieldLabel, IconButton } from "./controls";
 
@@ -64,6 +67,13 @@ export function JdPanel({
   /** The suggestion currently being applied, or null. */
   const [applying, setApplying] = useState<string | null>(null);
   const [applied, setApplied] = useState<Record<string, string>>({});
+  /**
+   * Set when either metered action here was refused. One piece of state for both,
+   * because the wall says the same thing whichever button hit it and showing two
+   * copies of it would be noise.
+   */
+  const [blocked, setBlocked] = useState<AiUsageDto | null>(null);
+  const { applyUsage } = useUsage();
 
   const aborter = useRef<AbortController | null>(null);
 
@@ -107,6 +117,7 @@ export function JdPanel({
 
     setComparing(true);
     setError(null);
+    setBlocked(null);
     setApplied({});
 
     try {
@@ -126,6 +137,9 @@ export function JdPanel({
       );
       setComparison(response.comparison);
       setAiError(response.aiError);
+      // Refunded already if the AI half never ran — the keyword diff on its own
+      // is free, and this is whatever the server ended up charging.
+      applyUsage(response.usage);
       setPast((current) => [
         {
           id: response.comparison.id,
@@ -137,6 +151,13 @@ export function JdPanel({
       ]);
     } catch (caught: unknown) {
       if (caught instanceof DOMException && caught.name === "AbortError") return;
+
+      if (caught instanceof ApiError && caught.isAllowanceExhausted && caught.usage) {
+        applyUsage(caught.usage);
+        setBlocked(caught.usage);
+        return;
+      }
+
       setError(
         caught instanceof ApiError ? caught.message : "The comparison couldn't finish. Try again.",
       );
@@ -144,7 +165,7 @@ export function JdPanel({
       aborter.current = null;
       setComparing(false);
     }
-  }, [comparing, draft, onBeforeRun, resumeId]);
+  }, [applyUsage, comparing, draft, onBeforeRun, resumeId]);
 
   /**
    * Runs one suggestion through the assistant.
@@ -159,6 +180,7 @@ export function JdPanel({
 
       setApplying(suggestion.id);
       setError(null);
+      setBlocked(null);
 
       try {
         await onBeforeApply();
@@ -185,13 +207,23 @@ export function JdPanel({
             if (event.outcome.ok) changes += 1;
           } else if (event.type === "error") {
             failure = event.message;
+          } else if (event.type === "done") {
+            // `done` carries the counter the apply just spent.
+            applyUsage(event.usage);
           }
         }
       } catch (caught: unknown) {
-        if (!(caught instanceof DOMException && caught.name === "AbortError")) {
-          failure =
-            caught instanceof ApiError ? caught.message : "The connection to the assistant dropped.";
+        if (caught instanceof DOMException && caught.name === "AbortError") return;
+
+        // Same refusal as a compare, surfaced the same way.
+        if (caught instanceof ApiError && caught.isAllowanceExhausted && caught.usage) {
+          applyUsage(caught.usage);
+          setBlocked(caught.usage);
+          return;
         }
+
+        failure =
+          caught instanceof ApiError ? caught.message : "The connection to the assistant dropped.";
       } finally {
         aborter.current = null;
         setApplying(null);
@@ -215,7 +247,7 @@ export function JdPanel({
 
       if (suggestion.sectionRef) onFocusSection(suggestion.sectionRef);
     },
-    [applying, comparison, onApplyDocument, onBeforeApply, onFocusSection, resumeId],
+    [applying, comparison, onApplyDocument, onBeforeApply, onFocusSection, resumeId, applyUsage],
   );
 
   const tooShort = draft.trim().length < MIN_JD_LENGTH;
@@ -240,6 +272,8 @@ export function JdPanel({
             {error}
           </p>
         )}
+
+        {blocked && <AllowanceWall usage={blocked} />}
 
         {!loading && (
           <section>
@@ -329,6 +363,7 @@ export function JdPanel({
         >
           {comparing ? "Comparing…" : comparison ? "Compare again" : "Compare"}
         </Button>
+        <AllowanceMeter className="mt-2 text-center" />
       </div>
     </aside>
   );

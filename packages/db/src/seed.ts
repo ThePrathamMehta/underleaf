@@ -1,5 +1,5 @@
-import type { Theme } from "@repo/types";
-import { themeSchema, resumeContentSchema } from "@repo/types";
+import type { PlanKey, Theme } from "@repo/types";
+import { PLAN_DEFAULTS, PLAN_KEYS, themeSchema, resumeContentSchema } from "@repo/types";
 import { Prisma, prisma } from "./index.js";
 import { SAMPLE_CONTENT } from "./sample-content.js";
 import { SAMPLE_CONTENT_BY_PROFESSION } from "./samples/index.js";
@@ -513,7 +513,54 @@ async function main() {
 
   console.log(`\nSeeded ${PROFESSIONS.length} professions.`);
 
+  await seedPlans();
   await promoteAdmins();
+}
+
+/**
+ * Seeds the three membership tiers from `PLAN_DEFAULTS`.
+ *
+ * Prices and allowances are *created* from those defaults and then left alone on
+ * re-runs, because Section 0 says these numbers should be tuned from real usage —
+ * and a seed that reset them on every deploy would undo the tuning. What does get
+ * written every run is `stripePriceId`, read from the environment: test-mode and
+ * live-mode price ids differ, so it belongs to the deployment rather than the
+ * data, and re-pointing a plan at a new Stripe Price should take a `db:seed`
+ * rather than a hand-written UPDATE.
+ */
+async function seedPlans(): Promise<void> {
+  for (const key of PLAN_KEYS as readonly PlanKey[]) {
+    const plan = PLAN_DEFAULTS[key];
+    const stripePriceId = plan.stripePriceEnv
+      ? (process.env[plan.stripePriceEnv]?.trim() ?? null) || null
+      : null;
+
+    await prisma.plan.upsert({
+      where: { key },
+      create: {
+        key,
+        name: plan.name,
+        priceCents: plan.priceCents,
+        billingInterval: plan.billingInterval,
+        durationDays: plan.durationDays,
+        aiActionAllowance: plan.aiActionAllowance,
+        isRenewing: plan.isRenewing,
+        sortOrder: plan.sortOrder,
+        stripePriceId,
+      },
+      // Name and order are presentation, safe to keep current. The numbers are
+      // not: see above.
+      update: { name: plan.name, sortOrder: plan.sortOrder, stripePriceId },
+    });
+
+    const price = plan.priceCents === 0 ? "free" : `$${(plan.priceCents / 100).toFixed(2)}`;
+    console.log(
+      `  seeded plan: ${plan.name} (${price}, ${plan.aiActionAllowance} AI actions` +
+        `${stripePriceId ? ", Stripe price set" : ", no Stripe price"})`,
+    );
+  }
+
+  console.log(`\nSeeded ${PLAN_KEYS.length} plans.`);
 }
 
 /**

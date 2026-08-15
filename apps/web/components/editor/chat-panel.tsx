@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import type { ChatToolOutcome, ResumeContent, Theme } from "@repo/types";
+import type { AiUsageDto, ChatToolOutcome, ResumeContent, Theme } from "@repo/types";
 import { api, ApiError } from "../../lib/api";
+import { useUsage } from "../../lib/usage";
+import { AllowanceMeter, AllowanceWall } from "../allowance";
 import { FieldLabel, IconButton } from "./controls";
 
 /**
@@ -33,6 +35,12 @@ type ChatTurn = {
   content: string;
   outcomes: ChatToolOutcome[];
   error: { code: string; message: string } | null;
+  /**
+   * Set instead of `error` when the turn was refused for want of allowance.
+   * Kept apart because the two want opposite affordances: an error offers a
+   * retry, and retrying an exhausted allowance can only fail the same way.
+   */
+  blocked: AiUsageDto | null;
   streaming: boolean;
 };
 
@@ -54,6 +62,7 @@ export function ChatPanel({
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { applyUsage } = useUsage();
 
   const aborter = useRef<AbortController | null>(null);
   const keySeed = useRef(0);
@@ -79,6 +88,7 @@ export function ChatPanel({
               content: message.content,
               outcomes: message.toolCalls ?? [],
               error: null,
+              blocked: null,
               streaming: false,
             })),
         );
@@ -126,8 +136,24 @@ export function ChatPanel({
       const assistantKey = nextKey();
       setTurns((current) => [
         ...current,
-        { key: nextKey(), role: "user", content: trimmed, outcomes: [], error: null, streaming: false },
-        { key: assistantKey, role: "assistant", content: "", outcomes: [], error: null, streaming: true },
+        {
+          key: nextKey(),
+          role: "user",
+          content: trimmed,
+          outcomes: [],
+          error: null,
+          blocked: null,
+          streaming: false,
+        },
+        {
+          key: assistantKey,
+          role: "assistant",
+          content: "",
+          outcomes: [],
+          error: null,
+          blocked: null,
+          streaming: true,
+        },
       ]);
 
       const update = (change: (turn: ChatTurn) => ChatTurn) =>
@@ -159,11 +185,26 @@ export function ChatPanel({
           } else if (event.type === "error") {
             update((turn) => ({ ...turn, error: { code: event.code, message: event.message } }));
           } else {
+            // `done` carries the counter the server wrote for this turn, so the
+            // meter above the composer is current without a second request.
+            applyUsage(event.usage);
             update((turn) => ({ ...turn, streaming: false }));
           }
         }
       } catch (error: unknown) {
         const aborted = error instanceof DOMException && error.name === "AbortError";
+
+        // Refused before the stream opened, which is the only reason a 402 can
+        // reach a caller that is otherwise reading events. It replaces the empty
+        // assistant turn with the wall rather than an error, because there is
+        // nothing here to retry.
+        if (error instanceof ApiError && error.isAllowanceExhausted && error.usage) {
+          applyUsage(error.usage);
+          const spent = error.usage;
+          update((turn) => ({ ...turn, blocked: spent, streaming: false }));
+          return;
+        }
+
         update((turn) => ({
           ...turn,
           error: aborted
@@ -185,7 +226,7 @@ export function ChatPanel({
         if (lastSectionRef) onFocusSection(lastSectionRef);
       }
     },
-    [busy, onApplyDocument, onBeforeTurn, onFocusSection, resumeId],
+    [busy, onApplyDocument, onBeforeTurn, onFocusSection, resumeId, applyUsage],
   );
 
   const retry = useCallback(() => {
@@ -251,6 +292,8 @@ export function ChatPanel({
           ),
         )}
       </div>
+
+      <AllowanceMeter className="border-t border-rule px-4 py-2.5" />
 
       <Composer
         value={draft}
@@ -337,6 +380,8 @@ function AssistantTurn({
           {applied} change{applied === 1 ? "" : "s"} applied &middot; Ctrl+Z to undo
         </p>
       )}
+
+      {turn.blocked && <AllowanceWall usage={turn.blocked} />}
 
       {turn.error && (
         <div role="alert" className="rounded-lg bg-danger-wash px-3 py-2">

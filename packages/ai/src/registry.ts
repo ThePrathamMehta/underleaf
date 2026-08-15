@@ -1,5 +1,5 @@
 import { prisma } from "@repo/db";
-import type { AiProvider, AiPurpose } from "@repo/types";
+import type { AiProvider, AiPurpose, PlanKey } from "@repo/types";
 import { createAnthropicAdapter } from "./adapters/anthropic";
 import { createOpenAiAdapter } from "./adapters/openai";
 import { createOpenAiCompatibleProviderAdapter } from "./adapters/openai-compatible";
@@ -44,24 +44,51 @@ export type ResolvedModel = {
   modelName: string;
   /** The purpose actually matched — `all` when the fallback row was used. */
   matchedPurpose: AiPurpose;
+  /** The plan actually matched — null when a plan-agnostic row was used. */
+  matchedPlanKey: PlanKey | null;
 };
 
 /**
- * Finds the active model for a purpose.
+ * Finds the active model for a purpose, and for the caller's plan.
  *
- * Falls back to an `all` row, so a deployment can start with one configured
- * model covering every feature and split later — flipping ATS onto a cheaper
- * model without touching any calling code. Within a purpose the most recently
- * updated active row wins, which makes "switch the model" a single write rather
- * than a deactivate-then-activate that has a window where nothing is active.
+ * Two fallback axes, resolved in priority order: an exact `(purpose, plan)` row
+ * beats a `(purpose, any-plan)` row, which beats `(all, plan)`, which beats
+ * `(all, any-plan)`. A deployment that never sets `planKey` therefore behaves
+ * exactly as v4 did — the plan axis only starts mattering once an admin opts
+ * into it by creating a plan-specific row.
+ *
+ * The point is cost, not capability: v5 Section 4 wants free-tier chat routed to
+ * a cheaper model than paid-tier chat, while the metering logic above stays
+ * identical for both. Within a tier the most recently updated active row wins,
+ * which keeps "switch the model" a single write with no window where nothing is
+ * active.
  */
-export async function resolveModel(purpose: AiPurpose): Promise<ResolvedModel> {
+export async function resolveModel(
+  purpose: AiPurpose,
+  planKey?: PlanKey | null,
+): Promise<ResolvedModel> {
   const rows = await prisma.aiProviderConfig.findMany({
-    where: { isActive: true, purpose: { in: [purpose, "all"] } },
+    where: {
+      isActive: true,
+      purpose: { in: [purpose, "all"] },
+      // A row for another plan is not a candidate at all; null means "any plan"
+      // and always is one. Expressed as an OR rather than `in: [planKey, null]`
+      // because SQL's IN never matches NULL — and Prisma's filter types say so.
+      ...(planKey ? { OR: [{ planKey }, { planKey: null }] } : { planKey: null }),
+    },
     orderBy: { updatedAt: "desc" },
   });
 
-  const row = rows.find((candidate) => candidate.purpose === purpose) ?? rows[0];
+  // Ranked rather than filtered four times: `findMany` already returned every
+  // candidate newest-first, so the best match is the one with the lowest rank,
+  // and ties fall to the more recently updated row for free.
+  const rank = (candidate: { purpose: string; planKey: string | null }): number =>
+    (candidate.purpose === purpose ? 0 : 2) + (candidate.planKey ? 0 : 1);
+
+  const row = rows.reduce<(typeof rows)[number] | undefined>(
+    (best, candidate) => (!best || rank(candidate) < rank(best) ? candidate : best),
+    undefined,
+  );
 
   if (!row) {
     throw new AiError(
@@ -92,6 +119,7 @@ export async function resolveModel(purpose: AiPurpose): Promise<ResolvedModel> {
     provider,
     modelName: row.modelName,
     matchedPurpose: row.purpose as AiPurpose,
+    matchedPlanKey: (row.planKey as PlanKey | null) ?? null,
   };
 }
 
@@ -136,7 +164,7 @@ export async function complete(
   request: AiRequest,
 ): Promise<AiCompletion> {
   const started = Date.now();
-  const model = await resolveModel(context.purpose);
+  const model = await resolveModel(context.purpose, context.planKey);
 
   try {
     const completion = await getCompletion(model.adapter, request, context.purpose);
@@ -171,7 +199,7 @@ export async function completeWithTools(
   handler: ToolHandler,
 ): Promise<AiCompletion> {
   const started = Date.now();
-  const model = await resolveModel(context.purpose);
+  const model = await resolveModel(context.purpose, context.planKey);
 
   try {
     const completion = await callWithTools(model.adapter, request, context.purpose, handler);
@@ -214,7 +242,7 @@ export async function* stream(
 
   let model: ResolvedModel;
   try {
-    model = await resolveModel(context.purpose);
+    model = await resolveModel(context.purpose, context.planKey);
   } catch (error) {
     // Resolution failures are yielded rather than thrown so a caller piping this
     // straight to an SSE response has one shape to handle, not two.

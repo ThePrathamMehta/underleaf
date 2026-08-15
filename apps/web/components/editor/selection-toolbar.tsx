@@ -3,11 +3,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
-import type { Theme } from "@repo/types";
-import { FONT_FAMILIES } from "@repo/types";
+import { FONT_CATALOG, type Theme } from "@repo/types";
 import { fontStack } from "@repo/ui/resume/styles";
 import { sanitizeHref } from "@repo/ui/resume/rich-text";
-import { FONT_LABELS } from "./toolbar";
+import { fontLabel } from "./toolbar";
 
 /**
  * Formatting for the *current selection*, as opposed to the document-wide
@@ -149,6 +148,31 @@ function exec(command: string, value?: string, css = false): boolean {
   }
 }
 
+const loadedCatalogFonts = new Set<string>();
+
+async function loadCatalogFont(family: string): Promise<void> {
+  if (loadedCatalogFonts.has(family)) return;
+  const label = fontLabel(family);
+  const id = `underleaf-font-${family}`;
+  if (!document.getElementById(id)) {
+    const link = document.createElement("link");
+    link.id = id;
+    link.rel = "stylesheet";
+    link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(label)}:wght@400;700&display=swap`;
+    const ready = new Promise<void>((resolve) => {
+      link.addEventListener("load", () => resolve(), { once: true });
+      link.addEventListener("error", () => resolve(), { once: true });
+    });
+    document.head.appendChild(link);
+    await ready;
+  }
+  try {
+    await document.fonts.load(`400 1em "${label}"`);
+  } finally {
+    loadedCatalogFonts.add(family);
+  }
+}
+
 export function SelectionToolbar({ theme }: { theme: Theme }) {
   const [mounted, setMounted] = useState(false);
   const [visible, setVisible] = useState(false);
@@ -160,6 +184,7 @@ export function SelectionToolbar({ theme }: { theme: Theme }) {
   });
   const [panel, setPanel] = useState<Panel>(null);
   const [linkDraft, setLinkDraft] = useState("");
+  const [fontQuery, setFontQuery] = useState("");
 
   const barRef = useRef<HTMLDivElement>(null);
   const fieldRef = useRef<HTMLElement | null>(null);
@@ -224,7 +249,7 @@ export function SelectionToolbar({ theme }: { theme: Theme }) {
   const sync = useCallback(() => {
     // A panel with an input has taken focus on purpose; the range we saved is
     // still the one the user means, so don't tear the bar down under them.
-    if (panelRef.current === "link") return;
+    if (panelRef.current === "link" || panelRef.current === "font") return;
 
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
@@ -474,26 +499,40 @@ export function SelectionToolbar({ theme }: { theme: Theme }) {
       )}
 
       {panel === "font" && (
-        <div className="mt-1 grid w-[19rem] grid-cols-2 gap-0.5 border-t border-rule p-1.5 pt-2">
-          <FontOption
-            label="Match document"
-            stack={fontStack(theme.fontFamily)}
-            onPick={(stack) => {
-              apply(() => exec("fontName", stack, true));
-              setPanel(null);
-            }}
+        <div className="mt-1 w-[19rem] border-t border-rule p-1.5 pt-2">
+          <input
+            autoFocus
+            value={fontQuery}
+            onChange={(event) => setFontQuery(event.target.value)}
+            placeholder="Search fonts…"
+            aria-label="Search selection fonts"
+            className="mb-1.5 h-8 w-full rounded-md bg-paper-sunken px-2 text-[0.8125rem] outline-none ring-1 ring-transparent placeholder:text-ink-faint focus:ring-accent-ring"
           />
-          {FONT_FAMILIES.filter((family) => family !== theme.fontFamily).map((family) => (
+          <div className="grid max-h-52 grid-cols-2 gap-0.5 overflow-y-auto">
             <FontOption
-              key={family}
-              label={FONT_LABELS[family]}
-              stack={fontStack(family)}
+              label="Match document"
+              stack={fontStack(theme.fontFamily)}
               onPick={(stack) => {
                 apply(() => exec("fontName", stack, true));
                 setPanel(null);
+                setFontQuery("");
               }}
             />
-          ))}
+            {FONT_CATALOG.filter((family) =>
+              family !== theme.fontFamily && fontLabel(family).toLowerCase().includes(fontQuery.trim().toLowerCase())
+            ).map((family) => (
+              <FontOption
+                key={family}
+                label={fontLabel(family)}
+                stack={fontStack(family)}
+                onPick={(stack) => {
+                  void loadCatalogFont(family).then(() => apply(() => exec("fontName", stack, true)));
+                  setPanel(null);
+                  setFontQuery("");
+                }}
+              />
+            ))}
+          </div>
         </div>
       )}
 

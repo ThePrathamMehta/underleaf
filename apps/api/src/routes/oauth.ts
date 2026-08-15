@@ -9,6 +9,7 @@ import { Strategy as GitHubStrategy } from "passport-github2";
 import { prisma } from "@repo/db";
 import { config } from "../config.js";
 import { setAuthCookie, signToken } from "../middleware/auth.js";
+import { ensureFreeSubscription } from "../services/entitlements.js";
 
 /**
  * OAuth (Google + GitHub) via Passport, terminating in the SAME JWT httpOnly
@@ -69,6 +70,11 @@ async function resolveUser(profile: NormalizedProfile): Promise<ResolveResult> {
       oauthId: profile.providerId,
     },
   });
+
+  // Same free-plan subscription the password signup creates — an account's tier
+  // shouldn't depend on which button made it (v5 Section 2).
+  await ensureFreeSubscription(created.id);
+
   return { ok: true, user: created };
 }
 

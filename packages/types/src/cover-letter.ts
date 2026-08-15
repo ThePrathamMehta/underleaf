@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { aiUsageSchema } from "./billing";
 
 /**
  * Wire types for cover letters.
@@ -66,6 +67,14 @@ export const coverLetterResponseSchema = z.object({
   letter: coverLetterSchema,
   /** True when the JD was reused from a past comparison rather than supplied. */
   reusedJobDescription: z.boolean(),
+  /**
+   * The allowance after this generation (v5 Section 6).
+   *
+   * Always present on a generate, never on a read: unlike ATS and JD matching
+   * there is no deterministic half here, so a letter that exists is a letter the
+   * model wrote, and the action is always spent.
+   */
+  usage: aiUsageSchema.optional(),
 });
 
 export type CoverLetterResponse = z.infer<typeof coverLetterResponseSchema>;

@@ -1,10 +1,17 @@
 'use client';
 
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion';
 import Link from 'next/link';
+import type { PlanDto } from '@repo/types';
+import { api } from '../lib/api';
+import { useAuth } from '../lib/auth-context';
+import { useCheckout } from '../lib/checkout';
+import { INCLUDED_EVERYWHERE } from '../lib/plans';
+import { useUsage } from '../lib/usage';
 import { ButtonLink } from '../components/button';
 import { LeafMark, Logo } from '../components/logo';
+import { Included, PlanCard, PlanSkeletons } from '../components/plan-card';
 import { SiteHeader } from '../components/site-header';
 
 const RISE = {
@@ -77,7 +84,11 @@ export default function LandingPage() {
                 transition={{ duration: 0.6, delay: 0.3 }}
                 className="mt-8 text-[0.8125rem] text-ink-faint"
               >
-                Free while in beta. No card, no watermark on your PDF.
+                Free to build, edit and export — no card, no watermark on your PDF.{' '}
+                <Link href="/pricing" className="underline underline-offset-2 hover:text-ink-muted">
+                  The AI features are metered
+                </Link>
+                .
               </motion.p>
             </div>
 
@@ -269,6 +280,8 @@ export default function LandingPage() {
           </div>
         </section>
 
+        <PricingSection />
+
         {/* Closing CTA */}
         <section className="relative overflow-hidden bg-paper-raised">
           {/* An oversized leaf bleeding off the corner, as a watermark. */}
@@ -302,6 +315,150 @@ export default function LandingPage() {
         </div>
       </footer>
     </>
+  );
+}
+
+/**
+ * Pricing, on the landing page.
+ *
+ * A visitor deciding whether to start should not have to leave to find out what
+ * it costs, and the honest answer is short enough to fit here: the editor is free,
+ * four AI features are metered, and there are three ways to hold an allowance.
+ *
+ * The cards are the same component `/pricing` uses and the numbers come from the
+ * same endpoint, so this can't drift into advertising a price the checkout won't
+ * honour. What's left downstream is the argument — where the metering line is
+ * drawn, and the questions people ask about it — which is what the link at the
+ * bottom is for.
+ */
+function PricingSection() {
+  const { user } = useAuth();
+  const { subscription } = useUsage();
+  const { start, starting, error: checkoutError } = useCheckout();
+
+  const [plans, setPlans] = useState<PlanDto[]>([]);
+  const [paymentsEnabled, setPaymentsEnabled] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [unavailable, setUnavailable] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    api
+      .plans(controller.signal)
+      .then((response) => {
+        setPlans(response.plans);
+        setPaymentsEnabled(response.paymentsEnabled);
+        setLoading(false);
+      })
+      .catch((caught: unknown) => {
+        if (caught instanceof DOMException && caught.name === 'AbortError') return;
+        // No prices rather than stale ones. This is the one section on the page
+        // that makes a promise about money, and a hardcoded fallback is how a
+        // marketing page ends up quoting a number the checkout disagrees with.
+        setUnavailable(true);
+        setLoading(false);
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  return (
+    <section className="border-b border-rule">
+      <div className="mx-auto max-w-6xl px-6 py-20 lg:py-24">
+        <h2 className="font-mono text-[0.6875rem] uppercase tracking-[0.18em] text-ink-faint">
+          What it costs
+        </h2>
+
+        <div className="mt-6 grid gap-8 lg:grid-cols-[0.45fr_0.55fr] lg:items-end lg:gap-16">
+          <p className="max-w-[22ch] font-display text-[clamp(1.75rem,3.4vw,2.5rem)] leading-[1.15] tracking-tight text-balance">
+            The resume part is <em className="italic text-accent">free</em>.
+          </p>
+          <p className="max-w-[54ch] leading-relaxed text-ink-muted text-pretty">
+            Building, editing and exporting cost us nothing per use, so they cost you nothing —
+            no page limit, no watermark, no export cap. Only the four features that call a
+            model on your behalf are counted, in actions you can see rather than tokens you
+            can&rsquo;t.
+          </p>
+        </div>
+
+        <div className="mt-12">
+          {checkoutError && (
+            <p
+              role="alert"
+              className="mb-8 rounded-lg bg-danger-wash px-4 py-3 text-sm text-danger"
+            >
+              {checkoutError}
+            </p>
+          )}
+
+          {!paymentsEnabled && !loading && !unavailable && (
+            <p
+              role="status"
+              className="mb-8 rounded-lg bg-accent-wash px-4 py-3 text-sm text-accent"
+            >
+              Checkout isn&rsquo;t switched on in this environment yet, so the paid plans
+              can&rsquo;t be bought here. Everything on the free plan works as described.
+            </p>
+          )}
+
+          {loading ? (
+            <PlanSkeletons />
+          ) : unavailable ? (
+            <div className="rounded-xl bg-paper-raised p-6 ring-1 ring-inset ring-rule sm:p-7">
+              <p className="max-w-[52ch] leading-relaxed text-ink-muted text-pretty">
+                The current plans and prices couldn&rsquo;t be loaded just now. Everything
+                below is included on every plan regardless — the pricing page has the rest.
+              </p>
+              <ButtonLink href="/pricing" variant="secondary" className="mt-5">
+                See pricing
+              </ButtonLink>
+            </div>
+          ) : (
+            // Same breakpoint as the dashboard and template grids: three cards at
+            // md is too narrow for a price and its badge to share a line.
+            <div className="grid gap-6 lg:grid-cols-3">
+              {plans.map((plan, index) => (
+                <PlanCard
+                  key={plan.key}
+                  plan={plan}
+                  index={index}
+                  current={subscription?.planKey === plan.key}
+                  signedIn={Boolean(user)}
+                  busy={starting === plan.key}
+                  disabled={starting !== null}
+                  onStart={() => void start(plan)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Stated once, below the three cards, rather than repeated inside each
+            of them. Metering four AI features invites the assumption that the
+            editor is metered too, and the only cure is naming what isn't. */}
+        <div className="mt-6 rounded-xl bg-paper-sunken p-6 ring-1 ring-inset ring-rule sm:p-7">
+          <p className="font-display text-lg tracking-tight">
+            Unlimited on every plan, including free
+          </p>
+          <ul className="mt-5 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+            {INCLUDED_EVERYWHERE.map((item) => (
+              <Included key={item}>{item}</Included>
+            ))}
+          </ul>
+        </div>
+
+        <p className="mt-8 text-[0.9375rem] text-ink-muted">
+          <Link
+            href="/pricing"
+            className="underline underline-offset-2 transition-colors hover:text-ink"
+          >
+            What counts as an AI action
+          </Link>{' '}
+          — the four metered features, and the questions people ask about them.
+        </p>
+      </div>
+    </section>
   );
 }
 

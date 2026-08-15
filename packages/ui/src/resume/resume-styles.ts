@@ -1,4 +1,4 @@
-import type { Theme, PageSize } from "@repo/types";
+import { FONT_CATALOG, type Theme, type PageSize } from "@repo/types";
 
 /**
  * Physical page dimensions in millimetres. The renderer works in mm/pt
@@ -11,7 +11,7 @@ export const PAGE_DIMENSIONS: Record<PageSize, { width: number; height: number }
 };
 
 /** Maps a theme font key to a concrete stack. Families are vendored as WOFF2. */
-const FONT_STACKS: Record<Theme["fontFamily"], string> = {
+const FONT_STACKS: Record<string, string> = {
   inter: "'Underleaf Inter', 'Helvetica Neue', Arial, sans-serif",
   lato: "'Underleaf Lato', 'Helvetica Neue', Arial, sans-serif",
   roboto: "'Underleaf Roboto', 'Helvetica Neue', Arial, sans-serif",
@@ -21,7 +21,11 @@ const FONT_STACKS: Record<Theme["fontFamily"], string> = {
 };
 
 export function fontStack(family: Theme["fontFamily"]): string {
-  return FONT_STACKS[family];
+  return FONT_STACKS[family] ?? `'${fontDisplayName(family)}', 'Helvetica Neue', Arial, sans-serif`;
+}
+
+function fontDisplayName(family: string): string {
+  return family.split("-").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
 }
 
 /** Base type sizes in points, before `fontSizeScale` is applied. */
@@ -92,8 +96,19 @@ export function themeToCssVars(theme: Theme): Record<string, string> {
  */
 export function themeToCss(theme: Theme, options: { fontFaces?: string } = {}): string {
   const page = PAGE_DIMENSIONS[theme.pageSize];
+  const requestedFonts = options.fontFaces === undefined
+    ? [theme.fontFamily, theme.headingFontFamily]
+    : [...FONT_CATALOG, theme.fontFamily, theme.headingFontFamily];
+  const remoteFonts = requestedFonts
+    .filter((family, index, all) => !FONT_STACKS[family] && all.indexOf(family) === index)
+    .map((family) => `family=${encodeURIComponent(fontDisplayName(family))}:wght@400;700`)
+    .join("&");
+  const googleFontsImport = remoteFonts
+    ? `@import url('https://fonts.googleapis.com/css2?${remoteFonts}&display=swap');`
+    : "";
 
   return `
+${googleFontsImport}
 ${options.fontFaces ?? ""}
 
 @page {

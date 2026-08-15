@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import type { AiUsageDto } from "@repo/types";
 import {
   ATS_CATEGORIES,
   ATS_CATEGORY_BLURBS,
@@ -13,6 +14,8 @@ import {
   type AtsSeverity,
 } from "@repo/types";
 import { api, ApiError } from "../../lib/api";
+import { useUsage } from "../../lib/usage";
+import { AllowanceMeter, AllowanceWall } from "../allowance";
 import { Button } from "../button";
 import { FieldLabel, IconButton } from "./controls";
 
@@ -89,6 +92,9 @@ export function AtsPanel({
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Set when the AI review was refused for want of allowance. */
+  const [blocked, setBlocked] = useState<AiUsageDto | null>(null);
+  const { applyUsage } = useUsage();
 
   const aborter = useRef<AbortController | null>(null);
 
@@ -123,6 +129,7 @@ export function AtsPanel({
 
     setChecking(true);
     setError(null);
+    setBlocked(null);
 
     try {
       await onBeforeCheck();
@@ -138,6 +145,9 @@ export function AtsPanel({
       const response = await api.scoreAts(resumeId, controller.signal);
       setResult(response.result);
       setAiError(response.aiError);
+      // Present whether or not the AI half ran: the route refunds the action
+      // when it didn't, and this is the refunded number.
+      applyUsage(response.usage);
       setHistory((current) => [
         ...current,
         {
@@ -148,6 +158,16 @@ export function AtsPanel({
       ]);
     } catch (caught: unknown) {
       if (caught instanceof DOMException && caught.name === "AbortError") return;
+
+      // The deterministic checks would have run for free, but the route meters
+      // before it scores at all, so an exhausted allowance means no score came
+      // back. Say that inline rather than as a failure.
+      if (caught instanceof ApiError && caught.isAllowanceExhausted && caught.usage) {
+        applyUsage(caught.usage);
+        setBlocked(caught.usage);
+        return;
+      }
+
       setError(
         caught instanceof ApiError ? caught.message : "The check couldn't finish. Try again.",
       );
@@ -155,7 +175,7 @@ export function AtsPanel({
       aborter.current = null;
       setChecking(false);
     }
-  }, [checking, onBeforeCheck, resumeId]);
+  }, [applyUsage, checking, onBeforeCheck, resumeId]);
 
   const previous = history.length > 1 ? history[history.length - 2] : undefined;
   const delta = result && previous ? result.overallScore - previous.overallScore : null;
@@ -180,6 +200,8 @@ export function AtsPanel({
             {error}
           </p>
         )}
+
+        {blocked && <AllowanceWall usage={blocked} className="mb-4" />}
 
         {!loading && !result && <EmptyState checking={checking} />}
 
@@ -225,6 +247,7 @@ export function AtsPanel({
             ? "Reading your resume the way a scanner would."
             : "Runs on demand — never while you type."}
         </p>
+        <AllowanceMeter className="mt-2 text-center" />
       </div>
     </aside>
   );

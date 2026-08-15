@@ -39,6 +39,9 @@ model User {
   chats     ChatSession[]
   coverLetters CoverLetter[]
 
+  subscriptions Subscription[]
+  aiAllowance   UserAiUsage[]
+
   @@unique([oauthProvider, oauthId])
 }
 
@@ -271,6 +274,15 @@ model AiProviderConfig {
   /// `chat` | `ats` | `jdMatch` | `coverLetter` | `all`. `all` is the fallback
   /// used when no row targets a purpose specifically.
   purpose String
+  /// Which membership tier this row serves: `free` | `pro_monthly` |
+  /// `job_search_pass`, or null for "any plan" (v5 Section 4).
+  ///
+  /// Exists so free-tier chat can be routed to a cheaper model than paid-tier
+  /// chat without changing a line of calling code — the tier that doesn't pay is
+  /// also the tier whose allowance we give away, and this is what makes giving it
+  /// away cheaper. Null is the fallback, matching how `all` works for `purpose`:
+  /// a deployment that never sets it behaves exactly as it did in v4.
+  planKey String?
   /// Only one row per purpose should be active; the registry takes the most
   /// recently updated active row, so flipping this is how an admin switches
   /// models without a redeploy.
@@ -281,6 +293,7 @@ model AiProviderConfig {
   updatedAt DateTime @updatedAt
 
   @@index([purpose, isActive, updatedAt])
+  @@index([planKey, purpose, isActive, updatedAt])
 }
 
 /// One row per provider call, for cost tracking.
@@ -434,4 +447,157 @@ model CoverLetter {
 
   @@index([userId, updatedAt])
   @@index([resumeId, updatedAt])
+}
+
+// --- Membership and billing (v5) ---
+//
+// The line these three models draw is the one the codebase already drew: a
+// feature that costs nothing to run is free and unmetered, a feature that spends
+// tokens is metered. Nothing here gates resume editing, PDF work, export, the
+// rule-based ATS score, or the deterministic JD keyword diff.
+
+/// A purchasable tier.
+///
+/// A table rather than a hardcoded constant because `stripePriceId` differs per
+/// environment — test-mode and live-mode price ids are not the same string — and
+/// baking that into the bundle would mean a redeploy to change a price. The
+/// *shape* of a plan is code (`PLAN_KEYS` in @repo/types); its price and
+/// allowance are data, which is what Section 0 asks for when it says these
+/// numbers should be tuned from `AiUsageLog` rather than guessed once.
+model Plan {
+  id String @id @default(cuid())
+  /// `free` | `pro_monthly` | `job_search_pass`. Unique: this is the stable
+  /// identifier every lookup and every seed run keys on, not the cuid.
+  key  String @unique
+  name String
+  /// Integer cents, never a float. 0 for free.
+  priceCents Int
+  /// `month` for the renewing plan, `one_time` for the pass, null for free.
+  billingInterval String?
+  /// Fixed lifetime in days. Set only for `job_search_pass`, which expires by
+  /// date regardless of unused allowance; null means "does not expire by date".
+  durationDays Int?
+  /// Metered AI actions this plan grants per period — or once, for the free
+  /// plan and the pass, neither of which refills.
+  aiActionAllowance Int
+  /// True only for `pro_monthly`. Distinguishes "Stripe will bill this again"
+  /// from "this was paid once", which is what decides whether a renewal webhook
+  /// should open a fresh usage period or be ignored.
+  isRenewing Boolean @default(false)
+  /// The Stripe Price this plan checks out against. Null for free, which is
+  /// never purchased. Nullable rather than required so the app boots and the
+  /// free tier works fully before any Stripe account exists.
+  stripePriceId String?
+  /// Display order on /pricing, cheapest first.
+  sortOrder Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  subscriptions Subscription[]
+
+  @@index([sortOrder])
+}
+
+/// A user's membership in a plan.
+///
+/// Every user has exactly one `active` row, including free users: an explicit
+/// free-plan row created at signup means `getActivePlan` is one indexed read
+/// with no "no subscription found" branch, and no code path where the absence of
+/// a row has to be interpreted.
+model Subscription {
+  id     String @id @default(cuid())
+  userId String
+  planId String
+  /// `active` | `canceled` | `expired` | `past_due`.
+  ///
+  /// `canceled` still grants access until `currentPeriodEnd` — Stripe's
+  /// cancel-at-period-end sets the intent immediately while the paid period runs
+  /// on, and taking access away at the click would be charging for time we then
+  /// refused to serve.
+  status String @default("active")
+  startedAt DateTime @default(now())
+  /// When access lapses. Null for free, which never expires. For the pass this
+  /// is `startedAt + durationDays`; for Pro Monthly it tracks Stripe's period.
+  currentPeriodEnd DateTime?
+  /// Set when the user asked to cancel but the paid period hasn't run out.
+  cancelAtPeriodEnd Boolean @default(false)
+  /// Null for free and for one-time purchases, which create no Stripe
+  /// subscription object.
+  stripeSubscriptionId String? @unique
+  /// The Stripe Customer. Retained across plan changes so a returning buyer
+  /// keeps one customer record and one payment-method list in the portal.
+  stripeCustomerId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan Plan @relation(fields: [planId], references: [id])
+
+  usagePeriods UserAiUsage[]
+
+  /// The lookup every metered request makes.
+  @@index([userId, status, createdAt])
+  @@index([stripeCustomerId])
+
+  /// Also carries a partial unique index that Prisma's schema language can't
+  /// express, added in `20260811140000_one_active_subscription_per_plan`:
+  ///
+  ///   UNIQUE ("userId", "planId") WHERE status = 'active'
+  ///
+  /// It's what makes `ensureFreeSubscription` idempotent under a
+  /// double-submitted signup. If a future `prisma migrate dev` offers to drop
+  /// it as drift, keep it and re-apply.
+}
+
+/// One grant of metered AI actions, and how much of it has been spent.
+///
+/// A new row per period rather than a counter reset in place: overwriting would
+/// destroy exactly the per-period history Section 0 says the allowance numbers
+/// should eventually be tuned from, and it makes a replayed renewal webhook
+/// indistinguishable from a real one.
+///
+/// `allowanceConsumed` is the only hot-write column in the schema. It is
+/// incremented under a row lock inside a transaction — see
+/// `checkAndConsumeAiAction` — because the read-decide-write around it is
+/// exactly the shape that double-spends the last action when two requests race.
+model UserAiUsage {
+  id             String @id @default(cuid())
+  userId         String
+  subscriptionId String
+  allowanceGranted  Int
+  allowanceConsumed Int @default(0)
+  periodStart DateTime @default(now())
+  /// When this grant stops counting. Null for the free plan's one-time grant,
+  /// which never refills and never lapses — a free user who spent 3 of 10
+  /// actions a year ago still has 7.
+  periodEnd DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  /// Resolving "the current grant" is newest-first per user.
+  @@index([userId, createdAt])
+  @@index([subscriptionId])
+}
+
+/// Stripe event ids that have already been processed.
+///
+/// Stripe retries a webhook until it gets a 2xx, and it can deliver the same
+/// event more than once even after one. Both are normal, and both are dangerous
+/// here: a replayed `invoice.paid` would write a second UserAiUsage row and hand
+/// out a second month of actions for one payment.
+///
+/// So the id is inserted *before* the event is handled, and a conflict on this
+/// primary key is the signal to skip. Being keyed on Stripe's own event id makes
+/// this work for every event type at once, which a unique column on Subscription
+/// would not — renewals never create a subscription row to conflict on.
+model StripeEvent {
+  /// Stripe's event id, e.g. `evt_1P...`.
+  id         String   @id
+  type       String
+  receivedAt DateTime @default(now())
+
+  /// Lets an operator prune events older than Stripe's own retention window.
+  @@index([receivedAt])
 }

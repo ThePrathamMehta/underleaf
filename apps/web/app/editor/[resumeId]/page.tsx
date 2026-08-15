@@ -309,6 +309,9 @@ export default function EditorPage({ params }: { params: Promise<{ resumeId: str
           pageCount={pageCount}
           activePage={activePage}
           onSelect={(pageIndex) => canvas.current?.scrollToPage(pageIndex)}
+          canRemoveLastPage={doc.content.sections.some((section) => section.pageBreakBefore)}
+          onRemoveLastPage={() => dispatch({ type: "removeLastPage" })}
+          collapseForAssistant={activePanel === "assistant"}
         />
 
         <EditorCanvas

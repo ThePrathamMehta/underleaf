@@ -12,6 +12,7 @@ import {
   AI_TOOL_NAMES,
   AI_TOOL_SCHEMAS,
   type ChatToolOutcome,
+  type PlanKey,
 } from "@repo/types";
 import { applyToolCall, type ToolDocument } from "./resume-tools.js";
 
@@ -112,6 +113,8 @@ export type ChatTurnOptions = {
   history: AiMessage[];
   message: string;
   userId: string;
+  /** The caller's tier, which decides which model answers (v5 Section 4). */
+  planKey?: PlanKey | null;
   signal?: AbortSignal;
   onUpdate: (update: ChatTurnUpdate) => void;
 };
@@ -124,7 +127,7 @@ export type ChatTurnOptions = {
  * should keep. Failures come back on `error` alongside whatever was achieved.
  */
 export async function runChatTurn(options: ChatTurnOptions): Promise<ChatTurnResult> {
-  const { templateName, history, message, userId, signal, onUpdate } = options;
+  const { templateName, history, message, userId, planKey, signal, onUpdate } = options;
 
   const messages: AiMessage[] = [
     ...history,
@@ -143,7 +146,7 @@ export async function runChatTurn(options: ChatTurnOptions): Promise<ChatTurnRes
     let failure: { code: string; message: string } | null = null;
 
     for await (const event of stream(
-      { purpose: "chat", userId },
+      { purpose: "chat", userId, planKey },
       { messages, system: SYSTEM_PROMPT, tools: TOOLS, signal },
     )) {
       if (event.type === "text") {

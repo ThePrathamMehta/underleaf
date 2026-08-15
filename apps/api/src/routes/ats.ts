@@ -12,6 +12,7 @@ import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 import { asyncHandler, notFound } from "../middleware/errors.js";
 import { parseContent, parseTheme } from "../serializers.js";
 import { scoreResume } from "../services/ats-score.js";
+import { checkAndConsumeAiAction, refundAiAction } from "../services/entitlements.js";
 import { findOwnedResume } from "./resumes.js";
 
 /**
@@ -72,12 +73,23 @@ atsRouter.post(
   asyncHandler<AuthedRequest>(async (req, res) => {
     const resume = await findOwnedResume(req.params.id!, req.userId);
 
+    // Consumed before the call, because the check has to precede the spend and
+    // there is no way to know from here whether the provider will answer.
+    const action = await checkAndConsumeAiAction(req.userId, "ats");
+
     const outcome = await scoreResume({
       content: parseContent(resume.content),
       theme: parseTheme(resume.theme),
       templateSlug: resume.template.slug,
       userId: req.userId,
+      planKey: action.planKey,
     });
+
+    // The rule-based half is free and always runs (Section 0), so an AI half that
+    // failed means the user got nothing they should be charged for. Refund and
+    // report the restored count, rather than billing an action for a provider
+    // outage.
+    const usage = outcome.aiAssisted ? action.usage : await refundAiAction(req.userId);
 
     // Stored even when the AI half failed, with `aiAssisted: false` recording
     // that. A rule-only run is a real measurement; dropping it would leave a gap
@@ -92,7 +104,7 @@ atsRouter.post(
       },
     });
 
-    res.json({ result: serializeResult(row), aiError: outcome.aiError });
+    res.json({ result: serializeResult(row), aiError: outcome.aiError, usage });
   }),
 );
 

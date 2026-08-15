@@ -2,6 +2,7 @@ import { z } from "zod";
 import { resumeContentSchema } from "./content";
 import { themeSchema } from "./theme";
 import { aiToolNameSchema } from "./ai-tools";
+import { aiUsageSchema } from "./billing";
 
 /**
  * Wire types for the chat assistant.
@@ -87,6 +88,14 @@ export const chatStreamEventSchema = z.discriminatedUnion("type", [
     messageId: z.string(),
     /** Absent when the turn only talked and changed nothing. */
     summary: z.string().nullable(),
+    /**
+     * The allowance after this turn was charged for (v5 Section 6).
+     *
+     * Rides along on the event that already ends the stream rather than costing
+     * the panel a second request: the counter above the chat box would otherwise
+     * be one turn stale exactly when the user is watching it approach zero.
+     */
+    usage: aiUsageSchema.optional(),
   }),
   z.object({
     type: z.literal("error"),

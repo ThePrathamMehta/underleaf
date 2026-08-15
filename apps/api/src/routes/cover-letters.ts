@@ -12,6 +12,7 @@ import { asyncHandler, notFound, validateBody } from "../middleware/errors.js";
 import { parseContent, parseTheme } from "../serializers.js";
 import { generateCoverLetter } from "../services/cover-letter.js";
 import { renderCoverLetterHtml } from "../services/cover-letter-pdf.js";
+import { checkAndConsumeAiAction, refundAiAction } from "../services/entitlements.js";
 import { exportHtmlPdf } from "../services/pdf.js";
 import { findOwnedResume } from "./resumes.js";
 
@@ -111,14 +112,27 @@ resumeCoverLettersRouter.post(
       }
     }
 
+    const action = await checkAndConsumeAiAction(req.userId, "coverLetter");
+
     // Generation happens before any write, so a provider failure leaves whatever
     // letter already existed untouched rather than blanking it.
-    const content = await generateCoverLetter({
-      content: parseContent(resume.content),
-      tone: body.tone,
-      jobDescriptionText,
-      userId: req.userId,
-    });
+    //
+    // Unlike ATS and JD matching there is no deterministic half to fall back on,
+    // so a failure here means the user received nothing at all — the action goes
+    // back for the same reason it does there, and the error surfaces unchanged.
+    let content: string;
+    try {
+      content = await generateCoverLetter({
+        content: parseContent(resume.content),
+        tone: body.tone,
+        jobDescriptionText,
+        userId: req.userId,
+        planKey: action.planKey,
+      });
+    } catch (error) {
+      await refundAiAction(req.userId);
+      throw error;
+    }
 
     // Regenerating replaces: a tone experiment shouldn't leave five near
     // identical drafts behind. Scoped by userId so an id from another account
@@ -133,7 +147,7 @@ resumeCoverLettersRouter.post(
         const row = await prisma.coverLetter.findFirstOrThrow({
           where: { id: body.coverLetterId },
         });
-        res.json({ letter: serializeLetter(row), reusedJobDescription });
+        res.json({ letter: serializeLetter(row), reusedJobDescription, usage: action.usage });
         return;
       }
       // Fell through: the id didn't resolve, so this becomes a fresh letter
@@ -150,7 +164,9 @@ resumeCoverLettersRouter.post(
       },
     });
 
-    res.status(201).json({ letter: serializeLetter(row), reusedJobDescription });
+    res
+      .status(201)
+      .json({ letter: serializeLetter(row), reusedJobDescription, usage: action.usage });
   }),
 );
 

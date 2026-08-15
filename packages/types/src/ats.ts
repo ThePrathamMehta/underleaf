@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { aiUsageSchema } from "./billing";
 
 /**
  * Wire types for ATS scoring.
@@ -96,6 +97,15 @@ export const atsScoreResponseSchema = z.object({
    * say which checks are missing instead of showing a quietly lower number.
    */
   aiError: z.string().nullable(),
+  /**
+   * The allowance after this run (v5 Section 6).
+   *
+   * Optional because three of the four endpoints in this file are reads that
+   * cost nothing, and a scored run that was refunded — the AI half didn't
+   * happen — reports the refunded count rather than pretending an action was
+   * spent.
+   */
+  usage: aiUsageSchema.optional(),
 });
 
 export type AtsScoreResponse = z.infer<typeof atsScoreResponseSchema>;

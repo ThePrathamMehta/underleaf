@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Instrument_Serif, Inter, JetBrains_Mono } from "next/font/google";
 import { AuthProvider } from "../lib/auth-context";
 import { ThemeProvider } from "../lib/theme-context";
+import { UsageProvider } from "../lib/usage";
 import { Splash } from "../components/splash";
 import "./globals.css";
 
@@ -78,7 +79,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: SPLASH_SCRIPT }} />
         <Splash />
         <ThemeProvider>
-          <AuthProvider>{children}</AuthProvider>
+          {/* Inside AuthProvider, which it reads to know whose allowance to
+              fetch — and to drop it again on sign-out. */}
+          <AuthProvider>
+            <UsageProvider>{children}</UsageProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

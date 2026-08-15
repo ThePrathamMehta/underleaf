@@ -39,6 +39,11 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   // Preserved so a user bounced off a protected page lands back on it.
   const next = searchParams.get("next") ?? "/dashboard";
 
+  // A signup that started as a purchase. Worth saying out loud: the visitor
+  // clicked "Get Pro Monthly" and got an account form, and the sentence under the
+  // heading is the only place to explain that this is a step and not a detour.
+  const buying = isSignup && next.startsWith("/pricing?plan=");
+
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
@@ -75,10 +80,12 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
           <h1 className="font-display text-[2.5rem] leading-tight tracking-tight">
             {isSignup ? "Create your account" : "Welcome back"}
           </h1>
-          <p className="mt-2 text-ink-muted">
-            {isSignup
-              ? "Free while in beta. Your resumes are saved as you type."
-              : "Sign in to pick up where you left off."}
+          <p className="mt-2 text-ink-muted text-pretty">
+            {buying
+              ? "One step first — a plan has to belong to an account. We'll take you to checkout as soon as this is done."
+              : isSignup
+                ? "Building, editing and exporting are free, with no card. Your resumes save as you type."
+                : "Sign in to pick up where you left off."}
           </p>
 
           {/* OAuth — first-class buttons in the app's own visual language, not
