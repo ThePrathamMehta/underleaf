@@ -3,6 +3,7 @@ import type {
   Section,
   SectionType,
 } from "@repo/types";
+import { isTextItem, sectionEntries } from "@repo/types";
 
 /**
  * Turning a resume into text an ATS would see.
@@ -94,12 +95,20 @@ function sectionChunks(section: Section): TextChunk[] {
   const name = label(section);
   at(section.title, name);
 
+  // Free text blocks read the same wherever they sit, so they're collected once
+  // here rather than in all seven branches below. They count: a note is printed,
+  // so an ATS parses it, and leaving it out would score the document as if the
+  // words weren't there.
+  section.items.filter(isTextItem).forEach((item) => at(item.text, name));
+
+  // Everything from here on is the section's own entries; the switch narrows
+  // `items` to the union of both, so the text blocks are filtered back out.
   switch (section.type) {
     case "summary":
-      section.items.forEach((item) => at(item.text, name));
+      sectionEntries(section.items).forEach((item) => at(item.text, name));
       break;
     case "experience":
-      section.items.forEach((item) => {
+      sectionEntries(section.items).forEach((item) => {
         const where = `${toPlainText(item.role) || "role"} at ${toPlainText(item.org) || name}`;
         at(item.role, where);
         at(item.org, where);
@@ -107,7 +116,7 @@ function sectionChunks(section: Section): TextChunk[] {
       });
       break;
     case "education":
-      section.items.forEach((item) => {
+      sectionEntries(section.items).forEach((item) => {
         const where = toPlainText(item.institution) || name;
         at(item.degree, where);
         at(item.institution, where);
@@ -115,14 +124,14 @@ function sectionChunks(section: Section): TextChunk[] {
       });
       break;
     case "skills":
-      section.items.forEach((item) => {
+      sectionEntries(section.items).forEach((item) => {
         const where = toPlainText(item.category) ? `${name} (${toPlainText(item.category)})` : name;
         at(item.category, where);
         item.skills.forEach((skill) => at(skill, where));
       });
       break;
     case "projects":
-      section.items.forEach((item) => {
+      sectionEntries(section.items).forEach((item) => {
         const where = toPlainText(item.name) || name;
         at(item.name, where);
         at(item.tech, where);
@@ -130,14 +139,14 @@ function sectionChunks(section: Section): TextChunk[] {
       });
       break;
     case "certifications":
-      section.items.forEach((item) => {
+      sectionEntries(section.items).forEach((item) => {
         const where = toPlainText(item.name) || name;
         at(item.name, where);
         at(item.issuer, where);
       });
       break;
     case "custom":
-      section.items.forEach((item) => {
+      sectionEntries(section.items).forEach((item) => {
         const where = toPlainText(item.heading) || name;
         at(item.heading, where);
         at(item.subheading, where);

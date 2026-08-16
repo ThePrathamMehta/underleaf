@@ -106,6 +106,30 @@ export const customItemSchema = z.object({
   bullets: z.array(richText(600)).max(12),
 });
 
+/**
+ * The discriminator that tells a free text block apart from a section's own
+ * entries. Every other item shape above omits `kind` entirely, which is what
+ * makes the runtime check below reliable in both directions.
+ */
+export const TEXT_ITEM_KIND = "text";
+
+/**
+ * A free block of prose the user can drop anywhere in the document.
+ *
+ * It lives in a section's `items` rather than in a list of its own so that
+ * everything already built per item works for it unchanged: the pagination pass
+ * measures it as an entry, its edit path is the usual
+ * `["sections", i, "items", k, "text"]`, and moving one is a move within an
+ * array. Nothing downstream needed a new concept.
+ */
+export const textItemSchema = z.object({
+  id: idSchema,
+  kind: z.literal(TEXT_ITEM_KIND),
+  text: richText(2000),
+});
+
+export type TextItem = z.infer<typeof textItemSchema>;
+
 export type SummaryItem = z.infer<typeof summaryItemSchema>;
 export type ExperienceItem = z.infer<typeof experienceItemSchema>;
 export type EducationItem = z.infer<typeof educationItemSchema>;
@@ -113,6 +137,35 @@ export type SkillsItem = z.infer<typeof skillsItemSchema>;
 export type ProjectItem = z.infer<typeof projectItemSchema>;
 export type CertificationItem = z.infer<typeof certificationItemSchema>;
 export type CustomItem = z.infer<typeof customItemSchema>;
+
+/**
+ * Whether an item is a free text block rather than one of the section's own
+ * entries.
+ *
+ * Checks the discriminator rather than the absence of a field, because some item
+ * shapes are structurally compatible with a text block — a SummaryItem also has
+ * `id` and `text` — and only `kind` separates them.
+ */
+export function isTextItem(item: unknown): item is TextItem {
+  return (
+    typeof item === "object" &&
+    item !== null &&
+    (item as { kind?: unknown }).kind === TEXT_ITEM_KIND
+  );
+}
+
+/**
+ * A section's own entries, with free text blocks filtered out.
+ *
+ * Anything that reasons about a section's *content* — scoring, ATS rules, the
+ * "is this section empty" check — wants this rather than `section.items`, since
+ * a stray note is not an entry. The cast is the one place the narrowing is
+ * asserted; `Exclude` is correct whether the caller's `T` is a single item type
+ * or the whole union.
+ */
+export function sectionEntries<T>(items: readonly T[]): Exclude<T, TextItem>[] {
+  return items.filter((item) => !isTextItem(item)) as Exclude<T, TextItem>[];
+}
 
 export const SECTION_TYPES = [
   "summary",
@@ -141,18 +194,43 @@ const sectionBase = {
   pageBreakBefore: z.boolean().optional(),
 };
 
+/** How many free text blocks one section may hold, on top of its own entries. */
+const MAX_TEXT_BLOCKS_PER_SECTION = 20;
+
+/**
+ * A section's items: its own entries, with free text blocks allowed among them.
+ *
+ * `textItemSchema` comes first in the union deliberately. Zod objects strip
+ * unknown keys, so `z.union([summaryItemSchema, textItemSchema])` would match a
+ * text block against the summary shape — both have `id` and `text` — and quietly
+ * drop the `kind` that identifies it. First match wins, so the more specific
+ * shape has to be tried first.
+ *
+ * The cap is split the same way: the array bound has to leave room for the notes,
+ * so the section's real limit on *entries* is re-imposed by the refinement. A
+ * summary section stays one-summary-only while still accepting a note beside it.
+ */
+function itemsWithText<T extends z.ZodTypeAny>(entry: T, maxEntries: number) {
+  return z
+    .array(z.union([textItemSchema, entry]))
+    .max(maxEntries + MAX_TEXT_BLOCKS_PER_SECTION)
+    .refine((items) => items.filter((item) => !isTextItem(item)).length <= maxEntries, {
+      message: `A section can hold at most ${maxEntries} entries.`,
+    });
+}
+
 /**
  * Discriminated on `type` so `items` is narrowed correctly — a template
  * rendering an "experience" section gets ExperienceItem[] with no casting.
  */
 export const sectionSchema = z.discriminatedUnion("type", [
-  z.object({ ...sectionBase, type: z.literal("summary"), items: z.array(summaryItemSchema).max(1) }),
-  z.object({ ...sectionBase, type: z.literal("experience"), items: z.array(experienceItemSchema).max(30) }),
-  z.object({ ...sectionBase, type: z.literal("education"), items: z.array(educationItemSchema).max(30) }),
-  z.object({ ...sectionBase, type: z.literal("skills"), items: z.array(skillsItemSchema).max(30) }),
-  z.object({ ...sectionBase, type: z.literal("projects"), items: z.array(projectItemSchema).max(30) }),
-  z.object({ ...sectionBase, type: z.literal("certifications"), items: z.array(certificationItemSchema).max(30) }),
-  z.object({ ...sectionBase, type: z.literal("custom"), items: z.array(customItemSchema).max(30) }),
+  z.object({ ...sectionBase, type: z.literal("summary"), items: itemsWithText(summaryItemSchema, 1) }),
+  z.object({ ...sectionBase, type: z.literal("experience"), items: itemsWithText(experienceItemSchema, 30) }),
+  z.object({ ...sectionBase, type: z.literal("education"), items: itemsWithText(educationItemSchema, 30) }),
+  z.object({ ...sectionBase, type: z.literal("skills"), items: itemsWithText(skillsItemSchema, 30) }),
+  z.object({ ...sectionBase, type: z.literal("projects"), items: itemsWithText(projectItemSchema, 30) }),
+  z.object({ ...sectionBase, type: z.literal("certifications"), items: itemsWithText(certificationItemSchema, 30) }),
+  z.object({ ...sectionBase, type: z.literal("custom"), items: itemsWithText(customItemSchema, 30) }),
 ]);
 
 export type Section = z.infer<typeof sectionSchema>;

@@ -1,9 +1,11 @@
 import Anthropic, { APIError, APIUserAbortError } from "@anthropic-ai/sdk";
 import type {
-  ContentBlockParam,
   MessageParam,
   StopReason,
+  TextBlockParam,
   Tool,
+  ToolResultBlockParam,
+  ToolUseBlockParam,
 } from "@anthropic-ai/sdk/resources/messages";
 import { AiError, codeForStatus, toAiError } from "../errors";
 import type {
@@ -53,32 +55,63 @@ function mapStopReason(reason: StopReason | null): AiStopReason {
 }
 
 /**
- * Marks the system prompt and the tool schemas as cacheable (v5 Section 4).
+ * Marks the reusable head of the prompt as cacheable (v5 Section 4).
  *
- * Both are byte-identical on every turn of every conversation — the resume
- * itself travels in the messages, which are not cached — so they are exactly what
- * a prompt cache is for. On a multi-round tool-calling turn this is the bulk of
- * the prompt re-sent each round, and the chat assistant's eight tool schemas are
- * not small.
+ * Anthropic assembles a prompt in a fixed order — tools, then system, then
+ * messages — and a breakpoint caches everything *before* it. Two kinds of prefix
+ * are worth marking, and they need different treatment:
  *
- * Two breakpoints, placed to match the order Anthropic assembles a prompt in
- * (tools, then system, then messages): one after the tools, one after the system
- * block. A prefix shorter than the model's minimum cacheable length is simply
- * not cached rather than rejected, so this is safe to apply unconditionally and
+ * Static: the tool schemas and the system prompt, byte-identical on every turn of
+ * every conversation. One breakpoint on the later of the two covers both, since a
+ * breakpoint after the system block necessarily includes the tools ahead of it.
+ *
+ * Rolling: the conversation so far. A tool-calling turn is a loop — up to eight
+ * rounds, each re-sending everything the previous round sent plus one exchange —
+ * so from round two onward the entire prior conversation is a prefix that was
+ * already sent verbatim. This is where the real saving is, because that prefix
+ * contains the resume.
+ *
+ * A prefix shorter than the model's minimum cacheable length is silently not
+ * cached rather than rejected, so all of this is safe to apply unconditionally and
  * needs no per-purpose opt-in.
  */
 const CACHE_CONTROL = { type: "ephemeral" } as const;
 
-function toAnthropicTools(tools: AiToolDef[]): Tool[] {
+/**
+ * How many trailing messages carry a rolling breakpoint.
+ *
+ * Two, not one. A cache read only matches at a breakpoint, and each one looks
+ * back a bounded number of blocks for its match — so a single breakpoint pinned to
+ * the very last message can miss when the round that just happened was a large
+ * one, which is precisely what a round emitting several tool calls plus their
+ * results is. Marking the previous message too leaves a match one exchange back,
+ * which is always inside the window.
+ *
+ * Kept to two so the whole scheme uses three of the four available breakpoints,
+ * leaving one spare rather than sitting exactly on the cap.
+ */
+const ROLLING_BREAKPOINTS = 2;
+
+/**
+ * Blocks that can carry `cache_control`.
+ *
+ * Narrower than `ContentBlockParam` on purpose: that union also admits thinking
+ * blocks, which have no such field, so typing the array as the full union would
+ * make the assignment below a cast rather than a check.
+ */
+type CacheableBlock = TextBlockParam | ToolUseBlockParam | ToolResultBlockParam;
+
+function toAnthropicTools(tools: AiToolDef[], cacheHere: boolean): Tool[] {
   return tools.map((tool, index) => ({
     name: tool.name,
     description: tool.description,
     // The JSON Schema is generated from Zod by `toolFromZod`, so the schema the
     // model is shown is the same object the arguments are validated against.
     input_schema: tool.parameters as Tool.InputSchema,
-    // Only the last one: a breakpoint caches everything *before* it, so marking
-    // every tool would spend the four-breakpoint budget describing one prefix.
-    ...(index === tools.length - 1 ? { cache_control: CACHE_CONTROL } : {}),
+    // Only the last one, and only when nothing later covers the same prefix: a
+    // breakpoint caches everything before it, so marking every tool would spend
+    // the whole budget describing one prefix.
+    ...(cacheHere && index === tools.length - 1 ? { cache_control: CACHE_CONTROL } : {}),
   }));
 }
 
@@ -90,10 +123,16 @@ function toAnthropicTools(tools: AiToolDef[]): Tool[] {
  * one. Assistant tool calls become `tool_use` blocks on the assistant turn, and
  * their results become `tool_result` blocks on the *user* turn that answers —
  * which is why `AiMessage.toolResults` lives on a user message.
+ *
+ * The trailing messages also pick up the rolling cache breakpoints described
+ * above. `AiRequest` has no field for that and shouldn't: which blocks can be
+ * cached, and how many breakpoints exist to spend, are facts about this provider.
  */
 function toAnthropicMessages(messages: AiMessage[]): MessageParam[] {
-  return messages.map((message) => {
-    const blocks: ContentBlockParam[] = [];
+  const firstRolling = Math.max(0, messages.length - ROLLING_BREAKPOINTS);
+
+  return messages.map((message, index) => {
+    const blocks: CacheableBlock[] = [];
 
     for (const result of message.toolResults ?? []) {
       blocks.push({
@@ -123,6 +162,13 @@ function toAnthropicMessages(messages: AiMessage[]): MessageParam[] {
     // conversation.
     if (blocks.length === 0) {
       blocks.push({ type: "text", text: "" });
+    }
+
+    // On the last block, so the breakpoint sits after the whole message: a
+    // breakpoint caches what precedes it, and half a message is not a prefix any
+    // later round will reproduce.
+    if (index >= firstRolling) {
+      blocks[blocks.length - 1]!.cache_control = CACHE_CONTROL;
     }
 
     return { role: message.role, content: blocks };
@@ -174,6 +220,10 @@ export function createAnthropicAdapter(config: AiAdapterConfig): AiAdapter {
       messages: toAnthropicMessages(request.messages),
       // Sent as a one-block array rather than a bare string so it can carry a
       // cache breakpoint; the API treats the two forms identically otherwise.
+      // This is the static breakpoint, and it covers the tools too — they are
+      // assembled ahead of the system prompt, so a breakpoint here has them in
+      // its prefix and a second one on the tools would only describe the same
+      // bytes twice.
       ...(request.system
         ? {
             system: [
@@ -182,7 +232,11 @@ export function createAnthropicAdapter(config: AiAdapterConfig): AiAdapter {
           }
         : {}),
       ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
-      ...(request.tools?.length ? { tools: toAnthropicTools(request.tools) } : {}),
+      // With no system prompt there is nothing later to carry the static
+      // breakpoint, so the tools take it themselves.
+      ...(request.tools?.length
+        ? { tools: toAnthropicTools(request.tools, !request.system) }
+        : {}),
     };
   }
 

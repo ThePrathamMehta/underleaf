@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./catalog": "./src/catalog.ts",
+    "./samples": "./src/samples/index.ts",
+    "./sample-content": "./src/sample-content.ts"
   },
   "scripts": {
     "db:generate": "prisma generate",

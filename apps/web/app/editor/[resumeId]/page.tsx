@@ -142,6 +142,15 @@ export default function EditorPage({ params }: { params: Promise<{ resumeId: str
 
   const onFieldCommit = useCallback(() => dispatch({ type: "commit" }), []);
 
+  /**
+   * Stable identity on purpose: the canvas subscribes its drag listeners for the
+   * life of a gesture and has this in the effect's dependencies, so a new
+   * function each render would tear them down and rebuild them mid-drag.
+   */
+  const onMoveItem = useCallback((itemId: string, toSectionId: string, index: number) => {
+    dispatch({ type: "moveItem", itemId, toSectionId, index });
+  }, []);
+
   const onThemeChange = useCallback((patch: Partial<Theme>) => {
     dispatch({ type: "patchTheme", patch });
   }, []);
@@ -327,6 +336,8 @@ export default function EditorPage({ params }: { params: Promise<{ resumeId: str
           onAddItem={(sectionId) => dispatch({ type: "addItem", sectionId })}
           onRemoveItem={(sectionId, itemId) => dispatch({ type: "removeItem", sectionId, itemId })}
           onAddBullet={(sectionId, itemId) => dispatch({ type: "addBullet", sectionId, itemId })}
+          onAddTextItem={(sectionId, index) => dispatch({ type: "addTextItem", sectionId, index })}
+          onMoveItem={onMoveItem}
           onPagesChange={setPageCount}
           onActivePageChange={setActivePage}
         />

@@ -1,5 +1,12 @@
 import type { ResumeContent, Section, SectionType, Theme } from "@repo/types";
-import { createEmptySection } from "@repo/types";
+import { createEmptySection, createTextItem, isTextItem } from "@repo/types";
+
+/**
+ * Anything that can occupy a slot in a section's `items` — one of the seven
+ * entry shapes or a free text block. Reordering and inserting work on slots
+ * without caring which, so they use this rather than narrowing per section type.
+ */
+type SectionItem = Section["items"][number];
 
 export type EditorDocument = {
   title: string;
@@ -25,6 +32,20 @@ export type EditorAction =
   | { type: "removeSection"; sectionId: string }
   | { type: "addItem"; sectionId: string }
   | { type: "removeItem"; sectionId: string; itemId: string }
+  /**
+   * Inserts a blank free text block at `index` in a section's items, so text can
+   * be added between two entries and not only at the end of a section.
+   */
+  | { type: "addTextItem"; sectionId: string; index: number }
+  /**
+   * Drag-and-drop of one item, to `index` within `toSectionId`.
+   *
+   * `index` counts slots in the destination section as it stands *before* the
+   * item is lifted out — it's read off the rendered page, which still shows the
+   * item in its old place — so a move within one section corrects for the hole
+   * the removal leaves behind.
+   */
+  | { type: "moveItem"; itemId: string; toSectionId: string; index: number }
   | { type: "addBullet"; sectionId: string; itemId: string }
   | { type: "removeBullet"; sectionId: string; itemId: string; index: number }
   // Pages are a consequence of how much content there is, not objects in their
@@ -97,6 +118,11 @@ function renumber(sections: Section[]): Section[] {
   return sections.map((section, index) => ({ ...section, order: index }));
 }
 
+/** Keeps an insertion point inside an array, inclusive of the end. */
+function clamp(index: number, length: number): number {
+  return Math.max(0, Math.min(index, length));
+}
+
 function reduceDoc(doc: EditorDocument, action: EditorAction): EditorDocument {
   switch (action.type) {
     case "setTitle":
@@ -167,6 +193,54 @@ function reduceDoc(doc: EditorDocument, action: EditorAction): EditorDocument {
           items: section.items.filter((item) => item.id !== action.itemId),
         }) as Section),
       };
+
+    case "addTextItem":
+      return {
+        ...doc,
+        content: mapSection(doc.content, action.sectionId, (section) => {
+          const items = [...section.items] as SectionItem[];
+          items.splice(clamp(action.index, items.length), 0, createTextItem());
+          return { ...section, items } as Section;
+        }),
+      };
+
+    case "moveItem": {
+      const from = doc.content.sections.find((s) => s.items.some((item) => item.id === action.itemId));
+      const moved = from?.items.find((item) => item.id === action.itemId);
+      if (!from || !moved) return doc;
+
+      // A typed entry belongs to a section of its own type — an experience entry
+      // dropped into Skills would fail validation and render as nothing — so it
+      // may only be reordered within its own section. A free text block is valid
+      // in any section's items, which is what lets it go anywhere.
+      const sameSection = from.id === action.toSectionId;
+      if (!sameSection && !isTextItem(moved)) return doc;
+
+      const fromIndex = from.items.findIndex((item) => item.id === action.itemId);
+      // The caller's index counts the page as currently drawn, which still shows
+      // the item in its old slot. Lifting it out shifts everything after it down
+      // by one, so a drop below its old position has to come back one.
+      const target = sameSection && action.index > fromIndex ? action.index - 1 : action.index;
+      if (sameSection && target === fromIndex) return doc;
+
+      return {
+        ...doc,
+        content: {
+          ...doc.content,
+          sections: doc.content.sections.map((section) => {
+            const isSource = section.id === from.id;
+            const isTarget = section.id === action.toSectionId;
+            if (!isSource && !isTarget) return section;
+
+            const items = isSource
+              ? (section.items as SectionItem[]).filter((item) => item.id !== action.itemId)
+              : ([...section.items] as SectionItem[]);
+            if (isTarget) items.splice(clamp(target, items.length), 0, moved);
+            return { ...section, items } as Section;
+          }),
+        },
+      };
+    }
 
     case "addBullet":
       return {

@@ -6,7 +6,7 @@ import type {
   ResumeContent,
   Theme,
 } from "@repo/types";
-import { ATS_SEVERITY_RANK } from "@repo/types";
+import { ATS_SEVERITY_RANK, isTextItem, sectionEntries } from "@repo/types";
 import {
   resumeBullets,
   resumeChunks,
@@ -256,6 +256,9 @@ function checkDates(content: ResumeContent, add: (issue: AtsIssue) => void): voi
     // Undated experience is a real parsing gap, not a style preference.
     if (section.type === "experience" || section.type === "education") {
       for (const item of section.items) {
+        // Skipped per-item rather than filtered up front: the narrowing here
+        // spans two section types, so `items` is a union of two arrays.
+        if (isTextItem(item)) continue;
         if (!toPlainText(item.startDate) && !toPlainText(item.endDate)) {
           const what =
             "role" in item
@@ -371,15 +374,16 @@ function checkKeywords(content: ResumeContent, add: (issue: AtsIssue) => void): 
   }
 
   if (skillsSection && skillsSection.type === "skills") {
-    const uncategorized = skillsSection.items.some((item) => !toPlainText(item.category));
-    const total = skillsSection.items.reduce((sum, item) => sum + item.skills.length, 0);
+    const groups = sectionEntries(skillsSection.items);
+    const uncategorized = groups.some((item) => !toPlainText(item.category));
+    const total = groups.reduce((sum, item) => sum + item.skills.length, 0);
 
     if (total > 0 && total < 6) {
       add(issue("warning", "keywords", `Your skills section lists only ${total} item${total === 1 ? "" : "s"}.`,
         "Expand it to 10–20, grouped by category. This is the cheapest keyword coverage on the page.",
         skillsSection.id));
     }
-    if (uncategorized && skillsSection.items.length > 1) {
+    if (uncategorized && groups.length > 1) {
       add(issue("suggestion", "formatting", "Some skill groups have no category label.",
         "Label them — “Languages”, “Frameworks”, “Tools”. Grouped skills survive parsing more reliably than one long line.",
         skillsSection.id));

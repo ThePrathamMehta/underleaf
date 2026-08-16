@@ -195,8 +195,12 @@ export function renderResumeHtml({ templateSlug, content, theme, layout }: Rende
  * `.rd-measure-host` stops the sheet clipping what runs past its bottom edge —
  * overflow hides painting but leaves layout alone, so every block still reports
  * its true height and the whole resume can be measured in one go.
+ *
+ * Exported for `scripts/check-one-page.ts`, which measures every seeded default
+ * the same way an export does. A second copy of this in the script would let the
+ * check pass against a mirror the exporter no longer renders.
  */
-function renderMeasureHtml({ templateSlug, content, theme }: RenderResumeArgs): string {
+export function renderMeasureHtml({ templateSlug, content, theme }: RenderResumeArgs): string {
   const fontFaces = fontFacesFromBase64(theme, (file) => fontCache.get(file));
 
   const markup = renderToStaticMarkup(

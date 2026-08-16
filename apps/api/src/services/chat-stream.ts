@@ -87,6 +87,49 @@ function send(res: Response, event: ChatStreamEvent): void {
   res.write(`data: ${JSON.stringify(event)}\n\n`);
 }
 
+/**
+ * The session id and the replayed transcript, in one round-trip on the common
+ * path.
+ *
+ * Was an `upsert` followed by a `findMany`. The row exists for every turn after
+ * the first, so the create is the rare case, and insisting on it up front spent a
+ * Neon round-trip on every turn to handle one of them. A nested read gets both
+ * halves at once and only falls back when there is genuinely nothing there.
+ */
+async function loadSession(
+  resumeId: string,
+  userId: string,
+): Promise<{ sessionId: string; history: AiMessage[] }> {
+  const existing = await prisma.chatSession.findUnique({
+    where: { resumeId },
+    select: {
+      id: true,
+      messages: { orderBy: { createdAt: "desc" }, take: HISTORY_LIMIT },
+    },
+  });
+
+  if (existing) {
+    return {
+      sessionId: existing.id,
+      history: toAiHistory(existing.messages.reverse().map(serializeMessage)),
+    };
+  }
+
+  /**
+   * First turn on this resume — no transcript to replay either way.
+   *
+   * `upsert` rather than `create` because two turns fired at once would both miss
+   * above, and `resumeId` is unique: the loser of that race wants the winner's row
+   * rather than a constraint violation.
+   */
+  const created = await prisma.chatSession.upsert({
+    where: { resumeId },
+    create: { resumeId, userId },
+    update: {},
+  });
+  return { sessionId: created.id, history: [] };
+}
+
 /** The turn-level line the panel shows under the reply. */
 function turnSummary(outcomes: ChatToolOutcome[]): string | null {
   const applied = outcomes.filter((outcome) => outcome.ok);
@@ -135,27 +178,38 @@ export async function streamChatTurn(options: StreamTurnOptions): Promise<void> 
    * Both metered chat surfaces come through this function — the chat box and
    * "Apply with AI" — so one call site covers both, and neither can drift into
    * being free.
+   *
+   * The session read is started alongside it rather than after it. It reads rows
+   * the entitlement check never touches, so the two have no ordering requirement
+   * between them, and running them in series made the user wait out two Neon
+   * round-trips to learn whether they were allowed to speak. The `catch` is only
+   * there to keep a rejection from going unhandled while a refusal takes the early
+   * exit below — the `await` further down still throws for a real failure.
    */
+  const sessionRead = loadSession(resume.id, userId);
+  sessionRead.catch(() => {});
+
   const action = await checkAndConsumeAiAction(userId, "chat");
 
   const document = { content: parseContent(resume.content), theme: parseTheme(resume.theme) };
+  const { sessionId, history } = await sessionRead;
 
-  const session = await prisma.chatSession.upsert({
-    where: { resumeId: resume.id },
-    create: { resumeId: resume.id, userId },
-    update: {},
+  /**
+   * The user's own turn, written concurrently with the model call rather than
+   * before it.
+   *
+   * Nothing downstream reads it — the instruction is passed to `runChatTurn`
+   * directly, and the replayed history was read above — so awaiting it here only
+   * put a write in front of the first token. It is settled before the assistant's
+   * row further down, which is the one ordering that matters: `createdAt` is what
+   * orders the transcript, and a reply must not predate the message it answers.
+   * The bare `catch` keeps a failure from surfacing as an unhandled rejection
+   * before that point; the handler down there is the one that reports it.
+   */
+  const userRow = prisma.chatMessage.create({
+    data: { sessionId, role: "user", content: options.transcriptText ?? message },
   });
-
-  const previous = await prisma.chatMessage.findMany({
-    where: { sessionId: session.id },
-    orderBy: { createdAt: "desc" },
-    take: HISTORY_LIMIT,
-  });
-  const history = toAiHistory(previous.reverse().map(serializeMessage));
-
-  await prisma.chatMessage.create({
-    data: { sessionId: session.id, role: "user", content: options.transcriptText ?? message },
-  });
+  userRow.catch(() => {});
 
   res.status(200);
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -165,6 +219,18 @@ export async function streamChatTurn(options: StreamTurnOptions): Promise<void> 
   // the whole thing this endpoint exists to avoid.
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
+
+  /**
+   * An SSE comment, written immediately so the browser's reader resolves now
+   * rather than on the first token.
+   *
+   * `flushHeaders` alone doesn't reliably wake `fetch`'s stream reader — a
+   * response with headers but no body bytes can sit in a buffer somewhere between
+   * here and the tab. One frame of payload forces it through, and the client's
+   * parser keeps only lines starting with `data:`, so a comment costs nothing to
+   * ignore.
+   */
+  res.write(": open\n\n");
 
   // A user closing the panel or navigating away cancels the provider call rather
   // than leaving it running and billable.
@@ -202,9 +268,19 @@ export async function streamChatTurn(options: StreamTurnOptions): Promise<void> 
     // Written even when the turn errored partway: the reply and the outcomes up
     // to that point are real, and a transcript that silently dropped them would
     // disagree with the resume the user is looking at.
+    //
+    // The user's row is settled first so the transcript can't show a reply dated
+    // before the message it answers; it has had the whole turn to land, so this
+    // normally waits on nothing. A failure is logged rather than rethrown — the
+    // turn has already run and its changes are already in the editor, so failing
+    // the turn here would tell the user their resume was untouched when it wasn't.
+    await userRow.catch((error) => {
+      console.error("Failed to record the user's turn:", error);
+    });
+
     const assistant = await prisma.chatMessage.create({
       data: {
-        sessionId: session.id,
+        sessionId,
         role: "assistant",
         content: turn.text,
         toolCalls: turn.outcomes.length ? turn.outcomes : undefined,
@@ -213,7 +289,7 @@ export async function streamChatTurn(options: StreamTurnOptions): Promise<void> 
 
     // Bumps the session's `updatedAt`, which is what history ordering uses.
     await prisma.chatSession.update({
-      where: { id: session.id },
+      where: { id: sessionId },
       data: { updatedAt: new Date() },
     });
 

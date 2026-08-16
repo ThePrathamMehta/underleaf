@@ -57,6 +57,7 @@ export const GENERAL_SAMPLE: ResumeContent = {
             "Renegotiated three carrier contracts, reducing outbound freight spend 14% ($680K annually) while improving on-time delivery two points.",
             "Cut voluntary turnover from 38% to 21% by introducing a written shift-bid process and a formal promotion ladder for leads.",
             "Own the site safety programme; 640 days without a lost-time incident as of this quarter.",
+            "Report weekly on throughput, cost per order and fill rate to the regional operations director.",
           ],
         },
         {
@@ -69,6 +70,8 @@ export const GENERAL_SAMPLE: ResumeContent = {
           bullets: [
             "Supervised two shifts totalling 34 associates, including hiring, scheduling and performance reviews.",
             "Led the WMS migration for the site — 11 weeks, no missed shipping days — and wrote the training material used across all four facilities.",
+            "Rebuilt the inbound receiving schedule around carrier arrival windows, cutting trailer detention charges 22%.",
+            "Ran the site's continuous improvement board, closing 40 associate-submitted process changes in the first year.",
           ],
         },
         {
@@ -81,6 +84,7 @@ export const GENERAL_SAMPLE: ResumeContent = {
           bullets: [
             "Managed inventory and scheduling for a location doing $9M in annual revenue.",
             "Reduced shrink 1.8 points by tightening receiving reconciliation and retraining the receiving team.",
+            "Coordinated seasonal hiring of 25 temporary associates across two peak cycles, retaining 80% through the season.",
           ],
         },
       ],

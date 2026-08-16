@@ -23,6 +23,10 @@ import type {
  * changing the model take effect without a redeploy, and a cache would mean
  * "without a redeploy, eventually". One indexed query against a table with a
  * handful of rows is not the thing to optimize here.
+ *
+ * The one qualification is the few-second window below, which exists because a
+ * chat turn resolves the model once per tool round rather than once per turn — see
+ * `RESOLUTION_TTL_MS`.
  */
 
 function buildAdapter(provider: AiProvider, config: AiAdapterConfig): AiAdapter {
@@ -49,6 +53,29 @@ export type ResolvedModel = {
 };
 
 /**
+ * How long a resolution may be reused, in milliseconds.
+ *
+ * The header above says this is read per request, and per *request* it still is.
+ * What changed in v5 is that one chat turn is not one request: `runChatTurn` loops
+ * up to eight rounds and calls `stream` for each, so the query below ran eight
+ * times over a few seconds to return the same row eight times — eight sequential
+ * round-trips to a serverless database, all of them in front of a user waiting for
+ * a reply.
+ *
+ * Five seconds is chosen to be shorter than a person: an admin who saves a new
+ * model and reloads to check cannot get from one to the other this fast, so the
+ * "no redeploy" guarantee is untouched. It is long enough to cover a single turn's
+ * rounds, which is the whole point.
+ *
+ * Only successes are cached. A misconfiguration must keep reporting itself — an
+ * admin fixing an unset key wants the next attempt to work, not the one after the
+ * window closes.
+ */
+const RESOLUTION_TTL_MS = 5_000;
+
+const resolutionCache = new Map<string, { model: ResolvedModel; expiresAt: number }>();
+
+/**
  * Finds the active model for a purpose, and for the caller's plan.
  *
  * Two fallback axes, resolved in priority order: an exact `(purpose, plan)` row
@@ -67,6 +94,12 @@ export async function resolveModel(
   purpose: AiPurpose,
   planKey?: PlanKey | null,
 ): Promise<ResolvedModel> {
+  // Both axes in the key, because both change which row wins.
+  const cacheKey = `${purpose}:${planKey ?? ""}`;
+  const cached = resolutionCache.get(cacheKey);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) return cached.model;
+
   const rows = await prisma.aiProviderConfig.findMany({
     where: {
       isActive: true,
@@ -109,7 +142,7 @@ export async function resolveModel(
 
   const provider = row.provider as AiProvider;
 
-  return {
+  const model: ResolvedModel = {
     adapter: buildAdapter(provider, {
       provider,
       modelName: row.modelName,
@@ -121,6 +154,12 @@ export async function resolveModel(
     matchedPurpose: row.purpose as AiPurpose,
     matchedPlanKey: (row.planKey as PlanKey | null) ?? null,
   };
+
+  // Reached only on success — the two throws above leave the window closed. The
+  // adapter is stateless apart from its client, so sharing one across a turn's
+  // rounds is exactly equivalent to rebuilding it per round.
+  resolutionCache.set(cacheKey, { model, expiresAt: now + RESOLUTION_TTL_MS });
+  return model;
 }
 
 /**
@@ -130,6 +169,12 @@ export async function resolveModel(
  * No prompt, no completion, no resume content. Best-effort by design: a logging
  * failure must not turn a successful completion into an error the user sees,
  * and the row is worth less than the answer it describes.
+ *
+ * That is also why every caller below starts it with `void` rather than awaiting
+ * it. The internal catch means there is no rejection to handle and no outcome to
+ * branch on, so awaiting could only add a database round-trip between the model
+ * finishing and the caller hearing about it — and on a chat turn it did so once per
+ * tool round.
  */
 async function recordUsage(entry: {
   context: AiCallContext;
@@ -168,7 +213,7 @@ export async function complete(
 
   try {
     const completion = await getCompletion(model.adapter, request, context.purpose);
-    await recordUsage({
+    void recordUsage({
       context,
       provider: model.provider,
       modelName: model.modelName,
@@ -179,7 +224,7 @@ export async function complete(
     return completion;
   } catch (error) {
     const aiError = toAiError(error);
-    await recordUsage({
+    void recordUsage({
       context,
       provider: model.provider,
       modelName: model.modelName,
@@ -203,7 +248,7 @@ export async function completeWithTools(
 
   try {
     const completion = await callWithTools(model.adapter, request, context.purpose, handler);
-    await recordUsage({
+    void recordUsage({
       context,
       provider: model.provider,
       modelName: model.modelName,
@@ -214,7 +259,7 @@ export async function completeWithTools(
     return completion;
   } catch (error) {
     const aiError = toAiError(error);
-    await recordUsage({
+    void recordUsage({
       context,
       provider: model.provider,
       modelName: model.modelName,
@@ -266,7 +311,7 @@ export async function* stream(
       yield event;
     }
   } finally {
-    await recordUsage({
+    void recordUsage({
       context,
       provider: model.provider,
       modelName: model.modelName,

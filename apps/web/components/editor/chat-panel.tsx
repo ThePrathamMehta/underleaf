@@ -125,14 +125,16 @@ export function ChatPanel({
       setBusy(true);
       setDraft("");
 
-      // Flush the autosave and open one undo step, before anything is streamed.
-      try {
-        await onBeforeTurn();
-      } catch {
-        // A failed flush is not fatal — the server falls back to the last saved
-        // document, which is the same guarantee export already makes.
-      }
-
+      /**
+       * The transcript is written before anything is awaited.
+       *
+       * Both of the next two steps are network round-trips — `onBeforeTurn`
+       * flushes the autosave, then the turn itself is a request — and doing them
+       * first left the panel showing nothing at all for as long as they took. The
+       * user's own words and a "Thinking" indicator are both known the instant
+       * they press send and neither depends on the server, so they go up now and
+       * the wait happens underneath something that has already moved.
+       */
       const assistantKey = nextKey();
       setTurns((current) => [
         ...current,
@@ -161,12 +163,26 @@ export function ChatPanel({
           current.map((turn) => (turn.key === assistantKey ? change(turn) : turn)),
         );
 
+      // Created before the flush rather than after it, so Stop is live for the
+      // whole visible wait and not only once the request is open.
       const controller = new AbortController();
       aborter.current = controller;
+
+      // Flush the autosave and open one undo step, before anything is streamed.
+      try {
+        await onBeforeTurn();
+      } catch {
+        // A failed flush is not fatal — the server falls back to the last saved
+        // document, which is the same guarantee export already makes.
+      }
 
       let lastSectionRef: string | null = null;
 
       try {
+        // Stop pressed during the flush: there is no request to abort yet, so the
+        // signal is read here and takes the same path a mid-stream abort does.
+        if (controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
+
         for await (const event of api.sendChatMessage(
           resumeId,
           { message: trimmed },

@@ -10,7 +10,9 @@ import type {
   Section,
   SkillsItem,
   SummaryItem,
+  TextItem,
 } from "@repo/types";
+import { isTextItem } from "@repo/types";
 import { createContext, useContext } from "react";
 import { EditableLink, EditableText, useResumeEditing, type FieldPath } from "./editable";
 import { htmlToPlainText, isBlankHtml } from "./rich-text";
@@ -276,12 +278,95 @@ export function ResumeHeader({
 /** Props every section body takes; `sectionId` keys its page slice. */
 type BodyProps<T> = { items: T[]; sectionIndex: number; sectionId: string };
 
-export function SummaryBody({ items, sectionIndex, sectionId }: BodyProps<SummaryItem>) {
+/**
+ * A free text block: prose the user placed between entries.
+ *
+ * A block-level `EditableText` and nothing else, which is the point — it inherits
+ * the whole editing surface the rest of the document already has, so the
+ * selection toolbar's bold, italic, colour and link work inside it with no extra
+ * wiring, and the exported PDF renders it through the same component.
+ *
+ * It renders even when blank, unlike the blank inline optionals elsewhere. The
+ * measuring mirror renders print form, and a block missing from the measurement
+ * gets no page slice — which would make a freshly added, still-empty block
+ * invisible on the canvas.
+ */
+function TextBlock({
+  item,
+  sectionIndex,
+  sectionId,
+  itemIndex,
+}: {
+  item: TextItem;
+  sectionIndex: number;
+  sectionId: string;
+  itemIndex: number;
+}) {
+  return (
+    <EditableText
+      as="p"
+      className="rd-text-block"
+      value={item.text}
+      path={["sections", sectionIndex, "items", itemIndex, "text"]}
+      placeholder="Write anything here"
+      multiline
+      // `data-item-id` is what puts the canvas's per-item controls on this block,
+      // so it can be moved and removed like any other entry.
+      blockAttrs={{ ...blockAttrs("entry", sectionId, itemIndex), "data-item-id": item.id }}
+    />
+  );
+}
+
+/**
+ * The shared shape of every section body: takes the items this sheet shows,
+ * renders any free text blocks itself, and hands the section's own entries back
+ * to the caller.
+ *
+ * Written once rather than seven times — a text block looks the same wherever it
+ * sits, and only the entries around it differ by section type.
+ *
+ * Callers name their entry type explicitly. Inferring it from a union argument
+ * works, but only by subtraction, and the two tsconfigs in this repo don't agree
+ * on the result; being explicit costs one word per call site and can't drift.
+ */
+function SectionItems<E>({
+  items,
+  sectionIndex,
+  sectionId,
+  children,
+}: {
+  items: (E | TextItem)[];
+  sectionIndex: number;
+  sectionId: string;
+  children: (rendered: RenderedItem<E>) => React.ReactNode;
+}) {
   const rendered = usePageItems(sectionId, items);
 
   return (
     <>
-      {rendered.map(({ item, index: i }) => (
+      {rendered.map((entry) =>
+        isTextItem(entry.item) ? (
+          <TextBlock
+            key={entry.item.id}
+            item={entry.item}
+            sectionIndex={sectionIndex}
+            sectionId={sectionId}
+            itemIndex={entry.index}
+          />
+        ) : (
+          // Narrowing `entry.item` doesn't narrow `entry` itself, so this states
+          // once what the guard above already established.
+          children(entry as RenderedItem<E>)
+        ),
+      )}
+    </>
+  );
+}
+
+export function SummaryBody({ items, sectionIndex, sectionId }: BodyProps<SummaryItem | TextItem>) {
+  return (
+    <SectionItems<SummaryItem> items={items} sectionIndex={sectionIndex} sectionId={sectionId}>
+      {({ item, index: i }) => (
         <EditableText
           key={item.id}
           as="p"
@@ -292,17 +377,15 @@ export function SummaryBody({ items, sectionIndex, sectionId }: BodyProps<Summar
           multiline
           blockAttrs={blockAttrs("entry", sectionId, i)}
         />
-      ))}
-    </>
+      )}
+    </SectionItems>
   );
 }
 
-export function ExperienceBody({ items, sectionIndex, sectionId }: BodyProps<ExperienceItem>) {
-  const rendered = usePageItems(sectionId, items);
-
+export function ExperienceBody({ items, sectionIndex, sectionId }: BodyProps<ExperienceItem | TextItem>) {
   return (
-    <>
-      {rendered.map(({ item, index: i, head, range }) => {
+    <SectionItems<ExperienceItem> items={items} sectionIndex={sectionIndex} sectionId={sectionId}>
+      {({ item, index: i, head, range }) => {
         const base: FieldPath = ["sections", sectionIndex, "items", i];
         return (
           <div className="rd-entry" key={item.id} data-item-id={item.id} data-continued={head ? undefined : ""}>
@@ -321,17 +404,15 @@ export function ExperienceBody({ items, sectionIndex, sectionId }: BodyProps<Exp
             <Bullets bullets={item.bullets} basePath={[...base, "bullets"]} sectionId={sectionId} itemIndex={i} range={range} />
           </div>
         );
-      })}
-    </>
+      }}
+    </SectionItems>
   );
 }
 
-export function EducationBody({ items, sectionIndex, sectionId }: BodyProps<EducationItem>) {
-  const rendered = usePageItems(sectionId, items);
-
+export function EducationBody({ items, sectionIndex, sectionId }: BodyProps<EducationItem | TextItem>) {
   return (
-    <>
-      {rendered.map(({ item, index: i, head, range }) => {
+    <SectionItems<EducationItem> items={items} sectionIndex={sectionIndex} sectionId={sectionId}>
+      {({ item, index: i, head, range }) => {
         const base: FieldPath = ["sections", sectionIndex, "items", i];
         return (
           <div className="rd-entry" key={item.id} data-item-id={item.id} data-continued={head ? undefined : ""}>
@@ -355,18 +436,17 @@ export function EducationBody({ items, sectionIndex, sectionId }: BodyProps<Educ
             <Bullets bullets={item.bullets} basePath={[...base, "bullets"]} sectionId={sectionId} itemIndex={i} range={range} />
           </div>
         );
-      })}
-    </>
+      }}
+    </SectionItems>
   );
 }
 
-export function SkillsBody({ items, sectionIndex, sectionId }: BodyProps<SkillsItem>) {
+export function SkillsBody({ items, sectionIndex, sectionId }: BodyProps<SkillsItem | TextItem>) {
   const editing = useResumeEditing();
-  const rendered = usePageItems(sectionId, items);
 
   return (
-    <>
-      {rendered.map(({ item, index: i }) => {
+    <SectionItems<SkillsItem> items={items} sectionIndex={sectionIndex} sectionId={sectionId}>
+      {({ item, index: i }) => {
         const base: FieldPath = ["sections", sectionIndex, "items", i];
         return (
           <div className="rd-skill-row" key={item.id} data-item-id={item.id} {...blockAttrs("entry", sectionId, i)}>
@@ -389,18 +469,17 @@ export function SkillsBody({ items, sectionIndex, sectionId }: BodyProps<SkillsI
             />
           </div>
         );
-      })}
-    </>
+      }}
+    </SectionItems>
   );
 }
 
-export function ProjectsBody({ items, sectionIndex, sectionId }: BodyProps<ProjectItem>) {
+export function ProjectsBody({ items, sectionIndex, sectionId }: BodyProps<ProjectItem | TextItem>) {
   const editing = useResumeEditing();
-  const rendered = usePageItems(sectionId, items);
 
   return (
-    <>
-      {rendered.map(({ item, index: i, head, range }) => {
+    <SectionItems<ProjectItem> items={items} sectionIndex={sectionIndex} sectionId={sectionId}>
+      {({ item, index: i, head, range }) => {
         const base: FieldPath = ["sections", sectionIndex, "items", i];
         return (
           <div className="rd-entry" key={item.id} data-item-id={item.id} data-continued={head ? undefined : ""}>
@@ -423,18 +502,17 @@ export function ProjectsBody({ items, sectionIndex, sectionId }: BodyProps<Proje
             <Bullets bullets={item.bullets} basePath={[...base, "bullets"]} sectionId={sectionId} itemIndex={i} range={range} />
           </div>
         );
-      })}
-    </>
+      }}
+    </SectionItems>
   );
 }
 
-export function CertificationsBody({ items, sectionIndex, sectionId }: BodyProps<CertificationItem>) {
+export function CertificationsBody({ items, sectionIndex, sectionId }: BodyProps<CertificationItem | TextItem>) {
   const editing = useResumeEditing();
-  const rendered = usePageItems(sectionId, items);
 
   return (
-    <>
-      {rendered.map(({ item, index: i }) => {
+    <SectionItems<CertificationItem> items={items} sectionIndex={sectionIndex} sectionId={sectionId}>
+      {({ item, index: i }) => {
         const base: FieldPath = ["sections", sectionIndex, "items", i];
         return (
           <div className="rd-entry" key={item.id} data-item-id={item.id}>
@@ -454,18 +532,17 @@ export function CertificationsBody({ items, sectionIndex, sectionId }: BodyProps
             </div>
           </div>
         );
-      })}
-    </>
+      }}
+    </SectionItems>
   );
 }
 
-export function CustomBody({ items, sectionIndex, sectionId }: BodyProps<CustomItem>) {
+export function CustomBody({ items, sectionIndex, sectionId }: BodyProps<CustomItem | TextItem>) {
   const editing = useResumeEditing();
-  const rendered = usePageItems(sectionId, items);
 
   return (
-    <>
-      {rendered.map(({ item, index: i, head, range }) => {
+    <SectionItems<CustomItem> items={items} sectionIndex={sectionIndex} sectionId={sectionId}>
+      {({ item, index: i, head, range }) => {
         const base: FieldPath = ["sections", sectionIndex, "items", i];
         return (
           <div className="rd-entry" key={item.id} data-item-id={item.id} data-continued={head ? undefined : ""}>
@@ -489,8 +566,8 @@ export function CustomBody({ items, sectionIndex, sectionId }: BodyProps<CustomI
             <Bullets bullets={item.bullets} basePath={[...base, "bullets"]} sectionId={sectionId} itemIndex={i} range={range} />
           </div>
         );
-      })}
-    </>
+      }}
+    </SectionItems>
   );
 }
 

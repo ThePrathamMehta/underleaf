@@ -35,7 +35,7 @@ export const DESIGNER_SAMPLE: ResumeContent = {
       items: [
         {
           id: "itm_summary",
-          text: "Product designer with eight years across fintech and consumer subscription, working end to end from research through shipped interface. Built and now maintain a design system adopted by 40 engineers across six squads. Most comfortable on problems where the interface has to carry genuine complexity without looking like it does.",
+          text: "Product designer with eight years across fintech and consumer subscription, working end to end from research through shipped interface. Built and now maintain a design system adopted by 40 engineers across six squads.",
         },
       ],
     },
@@ -56,9 +56,8 @@ export const DESIGNER_SAMPLE: ResumeContent = {
           bullets: [
             "Own the money-movement surface — transfers, scheduling and limits — used by 2.4M monthly active customers.",
             "Redesigned the transfer flow around a single confirm step, cutting drop-off 34% and support contacts about failed transfers by half.",
-            "Created and maintain Harbour, the company design system: 94 components in Figma with matching React primitives, now used by 40 engineers across six squads.",
+            "Created and maintain Harbour, the company design system: 94 Figma components with matching React primitives, used by 40 engineers.",
             "Run a fortnightly critique for eight designers, and introduced the written design-review doc that replaced ad hoc Slack feedback.",
-            "Partner with the research team on quarterly generative studies; personally moderated 60+ usability sessions.",
           ],
         },
         {
@@ -70,8 +69,8 @@ export const DESIGNER_SAMPLE: ResumeContent = {
           endDate: "Jan 2023",
           bullets: [
             "Sole designer for the subscriber-facing app through a growth from 60K to 900K accounts.",
-            "Rebuilt the plan-selection page; the resulting variant lifted paid conversion 18% and became the permanent default after a six-week test.",
-            "Established the accessibility baseline — WCAG 2.1 AA contrast, focus order and reduced-motion support — and fixed 140 existing violations.",
+            "Rebuilt the plan-selection page; the variant lifted paid conversion 18% and became the permanent default.",
+            "Established the accessibility baseline — WCAG 2.1 AA contrast, focus order, reduced motion — and fixed 140 existing violations.",
           ],
         },
         {
@@ -103,7 +102,6 @@ export const DESIGNER_SAMPLE: ResumeContent = {
           endDate: "Present",
           bullets: [
             "Consolidated four divergent component libraries into one tokenised system, taking new-feature design time from roughly two weeks to four days.",
-            "Documented every component with usage guidance and accessibility notes, which cut design-QA rework tickets 62%.",
           ],
         },
         {
@@ -129,7 +127,7 @@ export const DESIGNER_SAMPLE: ResumeContent = {
         {
           id: "itm_sk1",
           category: "Craft",
-          skills: ["Interaction Design", "Design Systems", "Prototyping", "Visual Design", "Information Architecture"],
+          skills: ["Interaction Design", "Design Systems", "Prototyping", "Information Architecture"],
         },
         {
           id: "itm_sk2",
@@ -139,12 +137,7 @@ export const DESIGNER_SAMPLE: ResumeContent = {
         {
           id: "itm_sk3",
           category: "Tools",
-          skills: ["Figma", "Framer", "Adobe CC", "Rive", "Storybook", "Maze"],
-        },
-        {
-          id: "itm_sk4",
-          category: "Working knowledge",
-          skills: ["HTML", "CSS", "React", "WCAG 2.1 AA"],
+          skills: ["Figma", "Framer", "Adobe CC", "Rive", "Storybook", "HTML/CSS", "WCAG 2.1 AA"],
         },
       ],
     },

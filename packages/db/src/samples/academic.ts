@@ -8,8 +8,11 @@ import type { ResumeContent } from "@repo/types";
  * substance and everything else is context. Grants carry amounts and role (PI
  * vs co-I), because that distinction is the whole question at tenure review.
  *
- * Uses a page break before Publications — the section that most often pushes a
- * CV onto a second sheet, and the natural place to split it.
+ * Trimmed to a single page, which for a CV means *selected* rather than
+ * complete: three grants, three papers, and teaching folded in with service. A
+ * real CV of this shape runs to five pages and is meant to — but a default that
+ * opens on two sheets asks the user to delete before they can edit, and the
+ * publication list is the one section that grows on its own anyway.
  */
 export const ACADEMIC_SAMPLE: ResumeContent = {
   personalInfo: {
@@ -34,7 +37,7 @@ export const ACADEMIC_SAMPLE: ResumeContent = {
       items: [
         {
           id: "itm_summary",
-          text: "Computational models of memory consolidation, with emphasis on how sleep-dependent replay shapes generalisation. Current work combines high-density EEG with recurrent network models to test whether replay order predicts which memories survive interference. Committed to open data and preregistration.",
+          text: "Computational models of memory consolidation, with emphasis on how sleep-dependent replay shapes generalisation. Current work combines high-density EEG with recurrent network models of interference.",
         },
       ],
     },
@@ -54,7 +57,6 @@ export const ACADEMIC_SAMPLE: ResumeContent = {
           endDate: "2020",
           bullets: [
             "Dissertation: <i>Replay Order and the Generalisation of Episodic Memory</i>. Advisor: Prof. Helena Vogt.",
-            "Charlotte Elizabeth Procter Fellowship, 2019–2020.",
           ],
         },
         {
@@ -64,7 +66,7 @@ export const ACADEMIC_SAMPLE: ResumeContent = {
           location: "Chicago, IL",
           startDate: "2010",
           endDate: "2014",
-          bullets: ["Phi Beta Kappa. Honours thesis awarded departmental distinction."],
+          bullets: [],
         },
       ],
     },
@@ -78,26 +80,23 @@ export const ACADEMIC_SAMPLE: ResumeContent = {
         {
           id: "itm_app1",
           org: "University of Massachusetts Amherst",
-          role: "Assistant Professor, Department of Psychological and Brain Sciences",
+          role: "Assistant Professor, Psychological and Brain Sciences",
           location: "Amherst, MA",
           startDate: "Sep 2023",
           endDate: "Present",
           bullets: [
             "Direct a lab of two graduate students, one postdoc and five undergraduates; secured $1.9M in external funding within the first two years.",
-            "Built and maintain a 128-channel EEG suite now used by four other groups in the department.",
-            "Teach Computational Cognitive Science (graduate, 18 students) and Introduction to Memory (undergraduate, 240 students).",
           ],
         },
         {
           id: "itm_app2",
           org: "Stanford University",
-          role: "Postdoctoral Research Fellow, Wu Tsai Neurosciences Institute",
+          role: "Postdoctoral Fellow, Wu Tsai Neurosciences Institute",
           location: "Stanford, CA",
           startDate: "Sep 2020",
           endDate: "Aug 2023",
           bullets: [
             "Developed the recurrent network framework underlying three first-author papers, released as an open-source package with 1,100+ installs.",
-            "Mentored four rotation students, two of whom continued to doctoral programmes in the field.",
           ],
         },
       ],
@@ -123,29 +122,14 @@ export const ACADEMIC_SAMPLE: ResumeContent = {
           dateRange: "2024 – 2029",
           bullets: [],
         },
-        {
-          id: "itm_gr3",
-          heading: "Sloan Research Fellowship in Neuroscience",
-          subheading: "Fellow — $75,000",
-          dateRange: "2026",
-          bullets: [],
-        },
-        {
-          id: "itm_gr4",
-          heading: "NIH K99/R00 MH128441",
-          subheading: "Principal Investigator — $249,000 (K99 phase, relinquished on appointment)",
-          dateRange: "2022 – 2023",
-          bullets: [],
-        },
       ],
     },
     {
       id: "sec_pub",
       type: "custom",
-      title: "Peer-Reviewed Publications",
+      title: "Selected Publications",
       order: 4,
       visible: true,
-      pageBreakBefore: true,
       items: [
         {
           id: "itm_pub1",
@@ -168,64 +152,29 @@ export const ACADEMIC_SAMPLE: ResumeContent = {
           dateRange: "2023",
           bullets: [],
         },
-        {
-          id: "itm_pub4",
-          heading: "Salinas M, Vogt H. Hippocampal replay and the schema-consistency effect.",
-          subheading: "<i>eLife</i>, 11:e78219",
-          dateRange: "2022",
-          bullets: [],
-        },
-      ],
-    },
-    {
-      id: "sec_talks",
-      type: "custom",
-      title: "Invited Talks & Conference Presentations",
-      order: 5,
-      visible: true,
-      items: [
-        {
-          id: "itm_talk1",
-          heading: "Cognitive Neuroscience Society Annual Meeting",
-          subheading: "Invited symposium speaker, San Francisco, CA",
-          dateRange: "2026",
-          bullets: [],
-        },
-        {
-          id: "itm_talk2",
-          heading: "Society for Neuroscience Annual Meeting",
-          subheading: "Nanosymposium talk, Chicago, IL",
-          dateRange: "2025",
-          bullets: [],
-        },
-        {
-          id: "itm_talk3",
-          heading: "Colloquia: MIT, NYU, University of Toronto, Max Planck Institute (Leipzig)",
-          subheading: "Departmental invited talks",
-          dateRange: "2024 – 2026",
-          bullets: [],
-        },
       ],
     },
     {
       id: "sec_service",
       type: "custom",
-      title: "Teaching & Service",
-      order: 6,
+      title: "Teaching, Talks & Service",
+      order: 5,
       visible: true,
       items: [
         {
           id: "itm_srv1",
-          heading: "Ad hoc reviewer",
-          subheading: "<i>Nature Human Behaviour</i>, <i>Psychological Science</i>, <i>eLife</i>, <i>Cognition</i>",
-          dateRange: "2021 – Present",
+          heading: "Teaching",
+          subheading:
+            "Computational Cognitive Science (graduate); Introduction to Memory (240 students)",
+          dateRange: "2023 – Present",
           bullets: [],
         },
         {
           id: "itm_srv2",
-          heading: "Departmental service",
-          subheading: "Graduate admissions committee; undergraduate curriculum review",
-          dateRange: "2024 – Present",
+          heading: "Invited talks and service",
+          subheading:
+            "Cognitive Neuroscience Society symposium; colloquia at MIT, NYU and Toronto; reviewer for <i>eLife</i> and <i>Cognition</i>",
+          dateRange: "2021 – Present",
           bullets: [],
         },
       ],

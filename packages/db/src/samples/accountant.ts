@@ -35,7 +35,7 @@ export const ACCOUNTANT_SAMPLE: ResumeContent = {
       items: [
         {
           id: "itm_summary",
-          text: "Chartered Accountant with six years in statutory audit and direct tax, cleared both CA Final groups in the first attempt. Led Ind AS 116 transitions for two listed manufacturing clients and manages a portfolio of 14 engagements with combined turnover of ₹4,200 crore. Comfortable presenting findings directly to audit committees.",
+          text: "Chartered Accountant with six years in statutory audit and direct tax, cleared both CA Final groups in the first attempt. Leads Ind AS 116 transitions for listed manufacturing clients and manages a portfolio of 14 engagements with combined turnover of ₹4,200 crore.",
         },
       ],
     },
@@ -54,11 +54,10 @@ export const ACCOUNTANT_SAMPLE: ResumeContent = {
           startDate: "Apr 2022",
           endDate: "Present",
           bullets: [
-            "Manage statutory audits for 14 clients across manufacturing and NBFC sectors, with combined turnover of ₹4,200 crore, reporting to the engagement partner on all significant findings.",
+            "Manage statutory audits for 14 clients across manufacturing and NBFC sectors, with combined turnover of ₹4,200 crore.",
             "Led Ind AS 116 lease transition for two listed clients, remeasuring 380 contracts and restating comparatives without a single audit adjustment on review.",
-            "Identified an unrecorded ₹18 crore contingent liability from a pending GST demand, resulting in a qualified disclosure and a revision to the client's provisioning policy.",
-            "Reduced engagement fieldwork by 11 days on average by rebuilding the sampling approach around CaseWare analytics instead of manual vouching.",
-            "Supervise and review the work of six article assistants, including their audit documentation and SA 230 working papers.",
+            "Identified an unrecorded ₹18 crore contingent liability from a pending GST demand, resulting in a qualified disclosure and a revised provisioning policy.",
+            "Supervise and review the work of six article assistants, including their SA 230 working papers.",
           ],
         },
         {
@@ -69,9 +68,8 @@ export const ACCOUNTANT_SAMPLE: ResumeContent = {
           startDate: "Jun 2020",
           endDate: "Mar 2022",
           bullets: [
-            "Executed limited reviews and year-end audits for eight private clients, drafting the financial statements and the CARO 2020 reporting annexure.",
-            "Completed the internal financial controls assessment under Section 143(3)(i) for a ₹900 crore auto-components client, testing 142 control points across seven processes.",
-            "Prepared and filed corporate tax returns and transfer pricing documentation (Form 3CEB) for 11 entities, all accepted without scrutiny notice.",
+            "Executed limited reviews and year-end audits for eight private clients, drafting the financial statements and the CARO 2020 annexure.",
+            "Completed the internal financial controls assessment under Section 143(3)(i) for a ₹900 crore auto-components client, testing 142 control points.",
           ],
         },
       ],
@@ -90,7 +88,6 @@ export const ACCOUNTANT_SAMPLE: ResumeContent = {
           dateRange: "Jul 2017 – Jun 2020",
           bullets: [
             "Completed the full three-year training contract across statutory audit, internal audit and direct tax, on engagements in pharmaceuticals, retail and infrastructure.",
-            "Handled bank audit assignments for 30 branches of a public sector bank, covering advances classification and NPA identification under IRAC norms.",
           ],
         },
       ],
@@ -109,7 +106,7 @@ export const ACCOUNTANT_SAMPLE: ResumeContent = {
           location: "New Delhi, India",
           startDate: "2017",
           endDate: "2020",
-          bullets: ["All India Rank 214. Secured exemption in Advanced Auditing and Financial Reporting."],
+          bullets: ["All India Rank 214. Exemption in Advanced Auditing and Financial Reporting."],
         },
         {
           id: "itm_edu2",
@@ -118,7 +115,7 @@ export const ACCOUNTANT_SAMPLE: ResumeContent = {
           location: "Mumbai, India",
           startDate: "2014",
           endDate: "2017",
-          bullets: ["First Class with Distinction, 8.7 CGPA."],
+          bullets: [],
         },
       ],
     },
@@ -132,20 +129,15 @@ export const ACCOUNTANT_SAMPLE: ResumeContent = {
         {
           id: "itm_sk1",
           category: "Audit & Assurance",
-          skills: ["Statutory Audit", "Internal Financial Controls", "CARO 2020", "SA 700 Reporting", "Limited Review"],
+          skills: ["Statutory Audit", "Internal Financial Controls", "CARO 2020", "SA 700 Reporting"],
         },
         {
           id: "itm_sk2",
-          category: "Reporting Standards",
-          skills: ["Ind AS", "IFRS", "Schedule III", "Companies Act 2013"],
+          category: "Standards & Taxation",
+          skills: ["Ind AS", "IFRS", "Direct Tax", "GST", "Transfer Pricing", "Tax Audit (Form 3CD)"],
         },
         {
           id: "itm_sk3",
-          category: "Taxation",
-          skills: ["Direct Tax", "GST", "Transfer Pricing", "Tax Audit (Form 3CD)", "TDS Compliance"],
-        },
-        {
-          id: "itm_sk4",
           category: "Systems",
           skills: ["SAP FICO", "Tally Prime", "CaseWare", "Advanced Excel", "Power BI"],
         },
@@ -167,13 +159,6 @@ export const ACCOUNTANT_SAMPLE: ResumeContent = {
         },
         {
           id: "itm_ct2",
-          name: "Diploma in Information Systems Audit (DISA)",
-          issuer: "ICAI",
-          date: "2023",
-          link: "",
-        },
-        {
-          id: "itm_ct3",
           name: "Certified Public Accountant (CPA) — Passed all four sections",
           issuer: "AICPA",
           date: "2024",

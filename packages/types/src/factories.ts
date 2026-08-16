@@ -1,4 +1,5 @@
-import type { ResumeContent, Section, SectionType } from "./content";
+import type { ResumeContent, Section, SectionType, TextItem } from "./content";
+import { TEXT_ITEM_KIND } from "./content";
 
 /**
  * Ids only need to be unique within one resume document, and both the seed
@@ -103,6 +104,14 @@ export function createEmptySection(type: SectionType, order: number): Section {
         items: [{ id: makeId("item"), heading: "", subheading: "", dateRange: "", bullets: [""] }],
       };
   }
+}
+
+/**
+ * A blank free text block, minted with the same `item` prefix as any other entry
+ * — it occupies a slot in a section's `items`, so its id shares that namespace.
+ */
+export function createTextItem(text = ""): TextItem {
+  return { id: makeId("item"), kind: TEXT_ITEM_KIND, text };
 }
 
 /** A blank-but-valid resume, used when creating from a template with no sample. */

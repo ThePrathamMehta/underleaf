@@ -1,5 +1,7 @@
 import {
   createEmptySection,
+  createTextItem,
+  isTextItem,
   makeId,
   resumeContentSchema,
   themeSchema,
@@ -101,10 +103,13 @@ function buildItem(
   fields: Record<string, unknown>,
   base?: Record<string, unknown>,
 ): Record<string, unknown> {
-  const template = createEmptySection(section.type, section.order).items[0] as Record<
-    string,
-    unknown
-  >;
+  // A free text block is a slot in `items` but not one of the section's own
+  // entries, so its shape comes from its own factory. Without this the template
+  // would be, say, an experience entry, whose keys don't include `text` — and an
+  // update aimed at a note would drop every field and silently do nothing.
+  const template = (
+    isTextItem(base) ? createTextItem() : createEmptySection(section.type, section.order).items[0]
+  ) as Record<string, unknown>;
   const start = base ?? { ...template, id: makeId("item") };
 
   const next: Record<string, unknown> = { ...start };

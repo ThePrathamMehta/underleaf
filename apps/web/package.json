@@ -6,6 +6,7 @@
     "dev": "next dev --port 3000",
     "build": "next build",
     "start": "next start --port 3000",
+    "test": "bun test",
     "lint": "eslint . --max-warnings 0",
     "check-types": "tsc --noEmit"
   },

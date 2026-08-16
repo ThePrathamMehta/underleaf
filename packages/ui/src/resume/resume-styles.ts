@@ -28,6 +28,22 @@ function fontDisplayName(family: string): string {
   return family.split("-").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
 }
 
+/**
+ * Ceiling on the *top* page margin, in millimetres.
+ *
+ * `theme.marginSize` sets all four sides at once, and the generous end of its
+ * range spends a tenth of the sheet above the name — Modern Minimal seeds 20mm,
+ * Classic Oxford 21mm. Wide side margins are a real typographic choice and are
+ * left alone; a wide top margin is just the most valuable strip of the page left
+ * blank, so the top is capped here instead.
+ *
+ * Applied at render time rather than in the seeded themes so it also reaches
+ * resumes already saved with a large `marginSize`. 10mm is a little under the
+ * conventional half inch — still unmistakably a margin, and well inside the
+ * unprintable edge of any consumer printer.
+ */
+const MAX_TOP_MARGIN_MM = 10;
+
 /** Base type sizes in points, before `fontSizeScale` is applied. */
 const BASE_SIZES = {
   name: 22,
@@ -67,6 +83,7 @@ export function themeToCssVars(theme: Theme): Record<string, string> {
     "--rd-text": theme.textColor,
     "--rd-leading": String(theme.lineSpacing),
     "--rd-margin": `${theme.marginSize}mm`,
+    "--rd-margin-top": `${Math.min(theme.marginSize, MAX_TOP_MARGIN_MM)}mm`,
     "--rd-page-width": `${page.width}mm`,
     "--rd-page-height": `${page.height}mm`,
 
@@ -80,6 +97,13 @@ export function themeToCssVars(theme: Theme): Record<string, string> {
 
     "--rd-gap-section": `${(3.2 * theme.lineSpacing).toFixed(2)}mm`,
     "--rd-gap-entry": `${(2.1 * theme.lineSpacing).toFixed(2)}mm`,
+    /**
+     * Header to the first section heading — deliberately tighter than the
+     * between-sections rhythm. Sections need a gap large enough to read as a
+     * break in the document; the header needs only enough to not touch, because
+     * it is already set apart by size, weight and (in three templates) a rule.
+     */
+    "--rd-gap-header": `${(2.1 * theme.lineSpacing).toFixed(2)}mm`,
   };
 }
 
@@ -218,7 +242,10 @@ ${options.fontFaces ?? ""}
      that it does. With min-height the sheet grew instead, which produced one
      endless page rather than two normal ones. */
   height: var(--rd-page-height);
-  padding: var(--rd-margin);
+  /* The top is capped independently of the other three sides — see
+     MAX_TOP_MARGIN_MM. The first line of the resume is the most valuable on the
+     sheet, and a 20mm top margin spends a fourteenth of the page above it. */
+  padding: var(--rd-margin-top) var(--rd-margin) var(--rd-margin);
   background: #ffffff;
   position: relative;
   overflow: hidden;
@@ -254,11 +281,25 @@ ${options.fontFaces ?? ""}
   }
 }
 
-/* Continuation sheets start flush against the top margin: on sheet one that
-   space belongs to the header, which is why the measuring pass folds the first
-   section's gap into the header height. A descendant selector rather than a
-   child one, because three of the templates wrap their sections in a themed
-   div (.rd-classic, .rd-minimal, .rd-creative) and Deedy nests them in columns. */
+/* The space between the header and the resume's first heading.
+
+   Sheet one gets the tighter header gap rather than the full between-sections
+   rhythm, and continuation sheets — which repeat no header — get nothing at all,
+   starting flush against the top margin.
+
+   Both are descendant selectors rather than child ones, because three of the
+   templates wrap their sections in a themed div (.rd-classic, .rd-minimal,
+   .rd-creative) and Deedy nests them in columns. The attribute-plus-pseudo
+   specificity also has to outrank .rd-minimal .rd-section below, which would
+   otherwise reinstate its 1.55x gap above the first heading.
+
+   Whatever these produce is what the measuring pass reads back as the header
+   lump (top minus contentTop), so the packer needs no matching change: the
+   mirror renders this same page-zero form. */
+.rd-page[data-page-index="0"] .rd-section:first-of-type {
+  margin-top: var(--rd-gap-header);
+}
+
 .rd-page[data-page-index]:not([data-page-index="0"]) .rd-section:first-of-type {
   margin-top: 0;
 }
@@ -416,6 +457,15 @@ ${options.fontFaces ?? ""}
   font-size: var(--rd-size-body);
 }
 
+/* A free text block the user placed between entries. Body text at the same
+   vertical rhythm as an entry, so a note sits in the flow rather than looking
+   bolted on. While it is still empty it collapses to nothing in print: an empty
+   paragraph has no line box, and its margins collapse through it. */
+.rd-text-block {
+  font-size: var(--rd-size-body);
+  margin-top: var(--rd-gap-entry);
+}
+
 /* --- Skills --- */
 
 .rd-skill-row {
@@ -449,9 +499,12 @@ ${options.fontFaces ?? ""}
 }
 
 /* First section in each column sits flush with the column top, so the two
-   columns start on the same baseline. */
-.rd-col-side > .rd-section:first-child,
-.rd-col-main > .rd-section:first-child {
+   columns start on the same baseline. Deedy's own header divider already
+   separates them from the header, so they want no header gap of their own —
+   which means this has to outrank the page-zero rule above. The .rd-page prefix
+   matches that rule's specificity and this comes later, so it wins. */
+.rd-page .rd-col-side > .rd-section:first-child,
+.rd-page .rd-col-main > .rd-section:first-child {
   margin-top: 0;
 }
 
@@ -471,9 +524,13 @@ ${options.fontFaces ?? ""}
 .rd-band {
   background: var(--rd-accent);
   color: #ffffff;
-  /* Bleeds to the page edge by cancelling the page padding. */
-  margin: calc(-1 * var(--rd-margin)) calc(-1 * var(--rd-margin)) 0;
-  padding: calc(var(--rd-margin) * 0.85) var(--rd-margin);
+  /* Bleeds to the page edge by cancelling the page padding — the top uses the
+     capped value, which is what the page actually pads with. */
+  margin: calc(-1 * var(--rd-margin-top)) calc(-1 * var(--rd-margin)) 0;
+  /* Both sides follow the capped top margin rather than the wider side one: the
+     band's height is space above the resume's first line, so it belongs to the
+     same budget the page top does. */
+  padding: calc(var(--rd-margin-top) * 0.9) var(--rd-margin);
 }
 
 .rd-band .rd-role,
@@ -613,6 +670,14 @@ ${options.fontFaces ?? ""}
      editor. Dim its separator so a half-filled entry doesn't look broken. */
   .rd-canvas-host .rd-entry-divider {
     opacity: 0.45;
+  }
+
+  /* A free text block is the one field that is routinely empty on purpose — it
+     is added before it is written — so give it a real caret target instead of
+     the zero-height line an empty paragraph would otherwise be. Screen only: in
+     print an unwritten note takes no space at all. */
+  .rd-canvas-host .rd-text-block:empty {
+    min-height: calc(var(--rd-size-body) * 1.25);
   }
 }
 `.trim();

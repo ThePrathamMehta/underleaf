@@ -78,6 +78,20 @@ function documentPrompt(doc: ToolDocument, templateName: string): string {
   ].join("\n");
 }
 
+/**
+ * The tools that mint an id the model has not seen.
+ *
+ * `addSection` returns its new section's id in the tool result, but `addSectionItem`
+ * reports only the parent section — the new item's own id is never named, so the
+ * only way the model can learn it is by reading the document again. Everything else
+ * addresses ids that were already in the prompt.
+ *
+ * Nothing else needs the document re-sent. The tool results already say what
+ * changed and whether it took, and a round of pure rewrites produced no id the
+ * model cannot already see.
+ */
+const ID_MINTING_TOOLS = new Set(["addSection", "addSectionItem"]);
+
 /** What one tool call reports back to the model. */
 function toolResultContent(outcome: ChatToolOutcome): string {
   return outcome.ok
@@ -184,6 +198,7 @@ export async function runChatTurn(options: ChatTurnOptions): Promise<ChatTurnRes
 
     const results: AiToolResult[] = [];
     let roundChanged = false;
+    let mintedIds = false;
 
     for (const call of toolCalls) {
       // Applied in order against the running document, so two calls in one round
@@ -196,6 +211,7 @@ export async function runChatTurn(options: ChatTurnOptions): Promise<ChatTurnRes
         document = application.document;
         changed = true;
         roundChanged = true;
+        if (ID_MINTING_TOOLS.has(call.name)) mintedIds = true;
       }
 
       results.push({
@@ -209,10 +225,17 @@ export async function runChatTurn(options: ChatTurnOptions): Promise<ChatTurnRes
 
     messages.push({
       role: "user",
-      // The whole document again rather than a diff. The model has to address
-      // ids it has never seen — a new section's, a new item's — and re-reading
-      // costs tokens where guessing costs the user a rejected call and a round.
-      content: roundChanged ? documentPrompt(document, templateName) : "",
+      /**
+       * The whole document again, but only when the round created something the
+       * model cannot address yet.
+       *
+       * When it did, re-reading costs tokens where guessing costs the user a
+       * rejected call and a whole extra round — so the document goes back. When it
+       * did not, this is a second full copy of a resume the model was already shown,
+       * in a prompt that already grows by a round every round, and paying for it
+       * bought nothing. Rewriting bullets is the common request and takes this path.
+       */
+      content: mintedIds ? documentPrompt(document, templateName) : "",
       toolResults: results,
     });
   }

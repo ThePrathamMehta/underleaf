@@ -10,6 +10,7 @@
     "smoke:ai": "bun run scripts/smoke-ai.ts",
     "check:metering": "bun run scripts/check-metering.ts",
     "check:lifecycle": "bun run scripts/check-lifecycle.ts",
+    "check:one-page": "bun run scripts/check-one-page.ts",
     "browsers:install": "bunx puppeteer browsers install chrome",
     "lint": "eslint . --max-warnings 0",
     "check-types": "tsc --noEmit"

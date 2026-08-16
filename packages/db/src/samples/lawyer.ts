@@ -40,7 +40,6 @@ export const LAWYER_SAMPLE: ResumeContent = {
           endDate: "2019",
           bullets: [
             "Notes Editor, <i>Columbia Law Review</i>. Harlan Fiske Stone Scholar, 2017 and 2018.",
-            "Semifinalist, Harlan Fiske Stone Moot Court. Teaching assistant, Civil Procedure.",
           ],
         },
         {
@@ -94,9 +93,8 @@ export const LAWYER_SAMPLE: ResumeContent = {
           bullets: [
             "Second-chaired a three-week jury trial in the S.D.N.Y. defending a $140M breach-of-contract claim; conducted direct examination of two fact witnesses and drafted the Rule 50 motion.",
             "Drafted the successful motion to dismiss a putative securities class action on materiality grounds, disposing of all federal claims before discovery.",
-            "Manage document review and privilege logging for a multidistrict antitrust matter spanning 2.1 million documents and four outside vendors.",
+            "Manage document review and privilege logging for a multidistrict antitrust matter spanning 2.1 million documents.",
             "Argued two contested discovery motions in New York Supreme Court, Commercial Division, prevailing on both.",
-            "Maintain an active pro bono docket, including asylum representation before the New York Immigration Court.",
           ],
         },
         {
@@ -108,18 +106,7 @@ export const LAWYER_SAMPLE: ResumeContent = {
           endDate: "Aug 2021",
           bullets: [
             "Drafted 24 opinions and orders on summary judgment, class certification and Daubert motions in civil and criminal matters.",
-            "Managed the chambers' patent docket, including claim construction submissions in four Hatch-Waxman cases.",
-          ],
-        },
-        {
-          id: "itm_exp3",
-          org: "Sullivan & Marsh LLP",
-          role: "Summer Associate",
-          location: "New York, NY",
-          startDate: "Jun 2018",
-          endDate: "Aug 2018",
-          bullets: [
-            "Researched successor liability under Delaware law for an asset-purchase dispute; the resulting memorandum was adopted in the client's opposition brief.",
+            "Managed the chambers' patent docket, including claim construction in four Hatch-Waxman cases.",
           ],
         },
       ],
@@ -139,7 +126,7 @@ export const LAWYER_SAMPLE: ResumeContent = {
         {
           id: "itm_sk2",
           category: "Skills",
-          skills: ["Brief Writing", "Oral Argument", "Depositions", "E-Discovery Management", "Legal Research"],
+          skills: ["Brief Writing", "Oral Argument", "Depositions", "E-Discovery Management"],
         },
         {
           id: "itm_sk3",
