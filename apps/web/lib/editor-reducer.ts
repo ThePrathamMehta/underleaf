@@ -1,5 +1,22 @@
-import type { ResumeContent, Section, SectionType, Theme } from "@repo/types";
-import { createEmptySection, createTextItem, isTextItem } from "@repo/types";
+import type {
+  FreeformBlock,
+  ImageItem,
+  PlacedItem,
+  ResumeContent,
+  Section,
+  SectionType,
+  Theme,
+} from "@repo/types";
+import {
+  MAX_FREEFORM_BLOCKS,
+  MAX_FREEFORM_PAGES,
+  createEmptySection,
+  createFreeformBlock,
+  createTextItem,
+  freeformPageCount,
+  isImageItem,
+  isTextItem,
+} from "@repo/types";
 
 /**
  * Anything that can occupy a slot in a section's `items` — one of the seven
@@ -7,6 +24,13 @@ import { createEmptySection, createTextItem, isTextItem } from "@repo/types";
  * without caring which, so they use this rather than narrowing per section type.
  */
 type SectionItem = Section["items"][number];
+
+/**
+ * What may be changed about a placed image after it exists: where its bytes are,
+ * how wide it sits, how it aligns. Not `id` or `kind` — those are what make it
+ * findable and what it is.
+ */
+export type ImageItemPatch = Partial<Pick<ImageItem, "src" | "widthPercent" | "align" | "alt">>;
 
 export type EditorDocument = {
   title: string;
@@ -48,13 +72,64 @@ export type EditorAction =
   | { type: "moveItem"; itemId: string; toSectionId: string; index: number }
   | { type: "addBullet"; sectionId: string; itemId: string }
   | { type: "removeBullet"; sectionId: string; itemId: string; index: number }
+  // --- Placed items: the Insert menu on a template resume ---
+  /**
+   * Inserts an image or a rule at `index` in a section's items.
+   *
+   * The caller builds the item, as with `addFreeformBlock` and for the same
+   * reason: an image is inserted the moment the file is chosen and its `src` is
+   * filled in when the upload lands, so whoever started the upload needs the id to
+   * patch. Minting it in here would only hand it back on the next render.
+   */
+  | { type: "addPlacedItem"; sectionId: string; index: number; item: PlacedItem }
+  /**
+   * Changes an image item, found by id across every section.
+   *
+   * By id rather than by section and index because both callers are asynchronous
+   * with respect to the document: an upload completing, and a resize drag ending.
+   * Either could land after an edit moved the item, and an index captured when the
+   * gesture began would then write to whatever took its place.
+   *
+   * `coalesce` is set by the upload, and only by it — see `coalesces` below.
+   */
+  | { type: "patchImageItem"; itemId: string; patch: ImageItemPatch; coalesce?: boolean }
+  /** The freeform equivalent — a canvas image keeps its URL in `content`. */
+  | { type: "setFreeformContent"; blockId: string; content: string; coalesce?: boolean }
+  // --- The blank canvas ---
+  //
+  // Freeform blocks carry their own coordinates, so none of the section actions
+  // above apply to them and none of these have a section to name. Every one is a
+  // whole gesture: a drag dispatches once, on release, rather than on each pointer
+  // move — so it costs one undo step and one autosave, not sixty.
+  /**
+   * Adds a block the caller has already built.
+   *
+   * The caller builds it because it is the caller who needs the new block's id: a
+   * click on empty canvas has to focus the block it just created, and an id minted
+   * in here would only come back on the next render.
+   */
+  | { type: "addFreeformBlock"; block: FreeformBlock }
+  | { type: "moveFreeformBlock"; blockId: string; page: number; position: { x: number; y: number } }
+  /** Resize carries a position too: dragging a north or west handle moves the origin. */
+  | {
+      type: "resizeFreeformBlock";
+      blockId: string;
+      position: { x: number; y: number };
+      size: { width: number; height: number };
+    }
+  | { type: "removeFreeformBlock"; blockId: string }
   // Pages are a consequence of how much content there is, not objects in their
   // own right — the packer decides where sheets end. So there is no reorder or
   // delete for a page; those live in the section panel, on the unit that
   // actually exists. `addPage` and `togglePageBreak` stay: a *forced* break is a
   // real intent, and the packer honours it.
-  | { type: "addPage" }
-  | { type: "removeLastPage" }
+  //
+  // `freeform` comes from the caller because a page means something different on a
+  // blank canvas — a coordinate rather than a run of sections — and the template
+  // is what decides which, not the content. A blank resume switched onto a named
+  // template keeps its blocks, so reading the content here would guess wrong.
+  | { type: "addPage"; freeform?: boolean }
+  | { type: "removeLastPage"; freeform?: boolean }
   | { type: "togglePageBreak"; sectionId: string }
   /**
    * A document computed by the AI assistant, replacing content and theme wholesale.
@@ -81,9 +156,22 @@ const HISTORY_LIMIT = 60;
  * each, and a user who asked for one thing should undo one thing. The chat panel
  * dispatches `commit` before a turn's first edit, so the pre-turn document lands
  * on `past` exactly once and every later edit in the turn folds into it.
+ *
+ * An image upload landing is the third case, and the flag is on the action rather
+ * than the type because the same two actions serve a second caller that must *not*
+ * coalesce. Inserting an image adds it with an empty `src` and fills that in when
+ * the bytes arrive: one thing the user did, and folding the second half into the
+ * first is what makes a single Ctrl+Z take the whole image back out. A resize drag
+ * dispatches the same action and is its own step, as any other edit is.
  */
 function coalesces(action: EditorAction): boolean {
-  return action.type === "setField" || action.type === "setTitle" || action.type === "applyAiEdit";
+  return (
+    action.type === "setField" ||
+    action.type === "setTitle" ||
+    action.type === "applyAiEdit" ||
+    ((action.type === "patchImageItem" || action.type === "setFreeformContent") &&
+      action.coalesce === true)
+  );
 }
 
 /** Writes a value at a JSON path, cloning only the nodes along the way. */
@@ -122,6 +210,41 @@ function renumber(sections: Section[]): Section[] {
 function clamp(index: number, length: number): number {
   return Math.max(0, Math.min(index, length));
 }
+
+/**
+ * Rewrites one freeform block, or returns the content untouched when there is no
+ * such block — which the caller turns back into the same `doc`, so a gesture on a
+ * block that has since been deleted costs no undo step.
+ */
+function mapFreeformBlock(
+  content: ResumeContent,
+  blockId: string,
+  fn: (block: FreeformBlock) => FreeformBlock,
+): ResumeContent {
+  const blocks = content.freeformBlocks;
+  if (!blocks?.some((block) => block.id === blockId)) return content;
+
+  return {
+    ...content,
+    freeformBlocks: blocks.map((block) => (block.id === blockId ? fn(block) : block)),
+  };
+}
+
+/**
+ * Sets which sheet a block sits on, dropping the field for the first one.
+ *
+ * `page` is optional in the schema with absent meaning zero, and `createFreeformBlock`
+ * omits it, so writing an explicit `page: 0` here would make two spellings of the
+ * same document and show up as a diff in every autosave after a drag back to page one.
+ */
+function withPage(block: FreeformBlock, page: number): FreeformBlock {
+  const next: FreeformBlock = { ...block, page };
+  if (page === 0) delete next.page;
+  return next;
+}
+
+/** Where "Add page" puts the block that makes the new sheet exist. */
+const NEW_PAGE_BLOCK = { x: 20, y: 20 };
 
 function reduceDoc(doc: EditorDocument, action: EditorAction): EditorDocument {
   switch (action.type) {
@@ -268,7 +391,91 @@ function reduceDoc(doc: EditorDocument, action: EditorAction): EditorDocument {
         }) as Section),
       };
 
+    case "addPlacedItem":
+      return {
+        ...doc,
+        content: mapSection(doc.content, action.sectionId, (section) => {
+          const items = [...section.items] as SectionItem[];
+          items.splice(clamp(action.index, items.length), 0, action.item);
+          return { ...section, items } as Section;
+        }),
+      };
+
+    case "patchImageItem":
+      return {
+        ...doc,
+        content: {
+          ...doc.content,
+          // Every section, because the action names an item and not the section
+          // holding it. Sections without a match map to themselves.
+          sections: doc.content.sections.map((section) => ({
+            ...section,
+            items: section.items.map((item) =>
+              item.id === action.itemId && isImageItem(item) ? { ...item, ...action.patch } : item,
+            ),
+          })) as Section[],
+        },
+      };
+
+    case "setFreeformContent":
+      return {
+        ...doc,
+        content: mapFreeformBlock(doc.content, action.blockId, (block) => ({
+          ...block,
+          content: action.content,
+        })),
+      };
+
+    case "addFreeformBlock": {
+      const blocks = doc.content.freeformBlocks ?? [];
+      // The schema's cap. Refusing here keeps the document valid rather than
+      // letting the autosave fail on a payload the server will reject.
+      if (blocks.length >= MAX_FREEFORM_BLOCKS) return doc;
+      return { ...doc, content: { ...doc.content, freeformBlocks: [...blocks, action.block] } };
+    }
+
+    case "moveFreeformBlock": {
+      const content = mapFreeformBlock(doc.content, action.blockId, (block) =>
+        withPage({ ...block, position: action.position }, action.page),
+      );
+      return content === doc.content ? doc : { ...doc, content };
+    }
+
+    case "resizeFreeformBlock": {
+      const content = mapFreeformBlock(doc.content, action.blockId, (block) => ({
+        ...block,
+        position: action.position,
+        size: action.size,
+      }));
+      return content === doc.content ? doc : { ...doc, content };
+    }
+
+    case "removeFreeformBlock": {
+      const blocks = doc.content.freeformBlocks;
+      if (!blocks?.some((block) => block.id === action.blockId)) return doc;
+      return {
+        ...doc,
+        content: {
+          ...doc.content,
+          freeformBlocks: blocks.filter((block) => block.id !== action.blockId),
+        },
+      };
+    }
+
     case "addPage": {
+      // On a blank canvas a sheet exists because a block says it does, so adding
+      // one means placing a block on it. An empty text block is the smallest thing
+      // that will do, and it doubles as somewhere for the cursor to land when the
+      // user scrolls down to the page they just asked for.
+      if (action.freeform) {
+        const page = freeformPageCount(doc.content.freeformBlocks);
+        if (page >= MAX_FREEFORM_PAGES) return doc;
+        return reduceDoc(doc, {
+          type: "addFreeformBlock",
+          block: createFreeformBlock({ type: "text", page, position: NEW_PAGE_BLOCK }),
+        });
+      }
+
       // A new page needs a section to hold it (pages are runs of sections), so
       // append a blank custom section that begins a fresh page.
       const section = createEmptySection("custom", doc.content.sections.length);
@@ -277,6 +484,20 @@ function reduceDoc(doc: EditorDocument, action: EditorAction): EditorDocument {
     }
 
     case "removeLastPage": {
+      if (action.freeform) {
+        const blocks = doc.content.freeformBlocks ?? [];
+        const last = freeformPageCount(blocks) - 1;
+        // The first sheet is the document itself; there is no canvas without it.
+        if (last < 1) return doc;
+        return {
+          ...doc,
+          content: {
+            ...doc.content,
+            freeformBlocks: blocks.filter((block) => (block.page ?? 0) !== last),
+          },
+        };
+      }
+
       const ordered = [...doc.content.sections].sort((a, b) => a.order - b.order);
       const breakIndex = ordered.findLastIndex((section) => section.pageBreakBefore);
       // Pages created by natural content overflow are not stored objects and

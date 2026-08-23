@@ -1,4 +1,4 @@
-import type { Theme } from "@repo/types";
+import { BLANK_TEMPLATE_SLUG, DEFAULT_THEME, type Theme } from "@repo/types";
 
 /**
  * The template and profession catalogue: what gets seeded, and what a fit check
@@ -33,11 +33,11 @@ export const TEMPLATES: TemplateSeed[] = [
     defaultTheme: {
       fontFamily: "inter",
       headingFontFamily: "inter",
-      fontSizeScale: 1,
+      fontSizeScale: 1.01,
       accentColor: "#000000",
       textColor: "#000000",
-      lineSpacing: 1.2,
-      marginSize: 13,
+      lineSpacing: 1.24,
+      marginSize: 14,
       layout: "single-column",
       pageSize: "letter",
     },
@@ -51,11 +51,11 @@ export const TEMPLATES: TemplateSeed[] = [
     defaultTheme: {
       fontFamily: "lato",
       headingFontFamily: "lato",
-      fontSizeScale: 0.95,
+      fontSizeScale: 1.02,
       accentColor: "#0e6ba8",
       textColor: "#1a1a1a",
-      lineSpacing: 1.25,
-      marginSize: 12,
+      lineSpacing: 1.39,
+      marginSize: 15.5,
       layout: "sidebar-left",
       pageSize: "letter",
     },
@@ -69,11 +69,11 @@ export const TEMPLATES: TemplateSeed[] = [
     defaultTheme: {
       fontFamily: "inter",
       headingFontFamily: "inter",
-      fontSizeScale: 1,
+      fontSizeScale: 1.01,
       accentColor: "#0f766e",
       textColor: "#27272a",
-      lineSpacing: 1.27,
-      marginSize: 16,
+      lineSpacing: 1.31,
+      marginSize: 17,
       layout: "single-column",
       pageSize: "a4",
     },
@@ -90,7 +90,7 @@ export const TEMPLATES: TemplateSeed[] = [
       fontSizeScale: 1.02,
       accentColor: "#1a1a1a",
       textColor: "#1a1a1a",
-      lineSpacing: 1.22,
+      lineSpacing: 1.24,
       marginSize: 16,
       layout: "single-column",
       pageSize: "letter",
@@ -108,8 +108,8 @@ export const TEMPLATES: TemplateSeed[] = [
       fontSizeScale: 1,
       accentColor: "#b4451f",
       textColor: "#292524",
-      lineSpacing: 1.24,
-      marginSize: 14,
+      lineSpacing: 1.26,
+      marginSize: 14.5,
       layout: "single-column",
       pageSize: "letter",
     },
@@ -130,6 +130,14 @@ export const TEMPLATES: TemplateSeed[] = [
  * its own document. `theme.layout` is deliberately *not* an axis here: the
  * renderer never reads that field, so varying it would ship a literal duplicate
  * wearing a different name — the one thing the gallery must not contain.
+ *
+ * Note that every variant sets all three of `fontSizeScale`, `lineSpacing` and
+ * `marginSize` explicitly, even where the value equals its base's. These are the
+ * knobs `check:tune-themes` moves to fill the page, and each variant is measured
+ * separately because different fonts have different metrics — Merriweather at 1.26
+ * leading is not Garamond at 1.26. Inheriting any of them would mean retuning one
+ * base silently changed the fill of three variants that were never measured at
+ * those values.
  */
 export type VariantSeed = Omit<TemplateSeed, "defaultTheme"> & {
   /** Slug of the layout this restyles. Must exist in TEMPLATES. */
@@ -151,7 +159,9 @@ export const VARIANTS: VariantSeed[] = [
       headingFontFamily: "roboto",
       accentColor: "#334155",
       textColor: "#0f172a",
-      marginSize: 14,
+      fontSizeScale: 1.01,
+      lineSpacing: 1.24,
+      marginSize: 14.5,
     },
   },
   {
@@ -164,8 +174,9 @@ export const VARIANTS: VariantSeed[] = [
     themeOverrides: {
       fontFamily: "source-serif",
       headingFontFamily: "source-serif",
-      lineSpacing: 1.22,
-      marginSize: 13,
+      fontSizeScale: 1.01,
+      lineSpacing: 1.24,
+      marginSize: 13.5,
     },
   },
   {
@@ -175,10 +186,18 @@ export const VARIANTS: VariantSeed[] = [
     description:
       "Tuned down to fit a longer history on a single page — smaller type, tighter leading, narrower margins. Useful when you have more to say than room to say it.",
     category: "Software Engineer",
+    // Deliberately *not* the values `check:tune-themes` proposes. The tuner asked
+    // for 1.34 leading and 14.5mm margins here — which would fill the sample
+    // nicely and make this the airiest Jake's in the gallery, looser than the base
+    // it is meant to be the tight version of. This template exists for the user
+    // with a thirteen-bullet history and one page to put it on, so it stays
+    // tighter than `jakes` on all three knobs and accepts a lower fill against the
+    // short shared sample. Filled with the content it is *for*, it reaches the
+    // page like everything else.
     themeOverrides: {
-      fontSizeScale: 0.88,
-      lineSpacing: 1.14,
-      marginSize: 10,
+      fontSizeScale: 1,
+      lineSpacing: 1.22,
+      marginSize: 13.5,
     },
   },
 
@@ -195,6 +214,9 @@ export const VARIANTS: VariantSeed[] = [
       headingFontFamily: "inter",
       accentColor: "#3f3f46",
       textColor: "#18181b",
+      fontSizeScale: 1.03,
+      lineSpacing: 1.41,
+      marginSize: 16,
     },
   },
   {
@@ -208,7 +230,9 @@ export const VARIANTS: VariantSeed[] = [
       headingFontFamily: "merriweather",
       accentColor: "#6d28d9",
       textColor: "#27272a",
-      lineSpacing: 1.3,
+      fontSizeScale: 1,
+      lineSpacing: 1.42,
+      marginSize: 15,
     },
   },
 
@@ -224,8 +248,9 @@ export const VARIANTS: VariantSeed[] = [
       fontFamily: "roboto",
       headingFontFamily: "roboto",
       accentColor: "#18181b",
-      lineSpacing: 1.26,
-      marginSize: 14,
+      fontSizeScale: 1,
+      lineSpacing: 1.28,
+      marginSize: 14.5,
       pageSize: "letter",
     },
   },
@@ -240,8 +265,9 @@ export const VARIANTS: VariantSeed[] = [
       headingFontFamily: "source-serif",
       accentColor: "#b45309",
       textColor: "#292524",
-      lineSpacing: 1.27,
-      marginSize: 15,
+      fontSizeScale: 1.01,
+      lineSpacing: 1.29,
+      marginSize: 15.5,
     },
   },
 
@@ -259,7 +285,8 @@ export const VARIANTS: VariantSeed[] = [
       accentColor: "#1e3a5f",
       textColor: "#111827",
       fontSizeScale: 0.98,
-      marginSize: 15,
+      lineSpacing: 1.24,
+      marginSize: 15.5,
     },
   },
   {
@@ -272,9 +299,9 @@ export const VARIANTS: VariantSeed[] = [
     themeOverrides: {
       fontFamily: "merriweather",
       headingFontFamily: "merriweather",
-      fontSizeScale: 1,
-      lineSpacing: 1.24,
-      marginSize: 16,
+      fontSizeScale: 1.01,
+      lineSpacing: 1.26,
+      marginSize: 16.5,
       pageSize: "a4",
     },
   },
@@ -288,6 +315,7 @@ export const VARIANTS: VariantSeed[] = [
     themeOverrides: {
       accentColor: "#7f1d1d",
       fontSizeScale: 1.02,
+      lineSpacing: 1.24,
       marginSize: 16,
     },
   },
@@ -304,6 +332,9 @@ export const VARIANTS: VariantSeed[] = [
       headingFontFamily: "inter",
       accentColor: "#4338ca",
       textColor: "#1e1b4b",
+      fontSizeScale: 1,
+      lineSpacing: 1.26,
+      marginSize: 14.5,
     },
   },
   {
@@ -317,7 +348,9 @@ export const VARIANTS: VariantSeed[] = [
       fontFamily: "inter",
       accentColor: "#14532d",
       textColor: "#1c1917",
-      lineSpacing: 1.19,
+      fontSizeScale: 1,
+      lineSpacing: 1.21,
+      marginSize: 14.5,
     },
   },
 ];
@@ -334,7 +367,30 @@ function expandVariants(): TemplateSeed[] {
   });
 }
 
-export const ALL_TEMPLATES: TemplateSeed[] = [...TEMPLATES, ...expandVariants()];
+/**
+ * The blank canvas: the one template that imposes no structure at all.
+ *
+ * A seeded row like any other, because a `Resume` needs a template id and because
+ * the renderer already dispatches on the slug — from its point of view "no layout"
+ * is simply one more layout. What sets it apart is what it is *left out* of: the
+ * gallery grid shows it as the dashed "Start from blank" card rather than a
+ * thumbnail of an empty page, and `scripts/check-one-page.ts` skips it, since "how
+ * full is the first sheet" has no answer for a document whose sample content is a
+ * single empty heading.
+ *
+ * Its theme is `DEFAULT_THEME` verbatim, which is the whole intent: sane body
+ * defaults and not one styling decision made on the user's behalf.
+ */
+export const BLANK_TEMPLATE: TemplateSeed = {
+  name: "Blank",
+  slug: BLANK_TEMPLATE_SLUG,
+  description:
+    "An empty page with no imposed structure — click anywhere to start typing, and place headings, text, images and dividers wherever you want them.",
+  category: "Blank",
+  defaultTheme: DEFAULT_THEME,
+};
+
+export const ALL_TEMPLATES: TemplateSeed[] = [...TEMPLATES, ...expandVariants(), BLANK_TEMPLATE];
 
 /**
  * Who a template is for. Orthogonal to `category`, which describes how it looks

@@ -1,12 +1,12 @@
 /**
- * Client-side checks for the PDF upload, shared by the two places that accept a
- * file: the `/pdf` dropzone and the dashboard's "Upload a PDF" button.
+ * Client-side checks for the app's file uploads: the `.pdf` a document is
+ * imported from, and the images the editor's Insert menu adds.
  *
  * These are an optimization, not the enforcement — the API applies its own limits
  * regardless of what happens here. The point is that refusing a 40MB file locally
  * is instant, whereas letting it go costs the user a full upload before the same
- * answer comes back. Keeping both call sites on one function is what stops the
- * dropzone and the button from disagreeing about what's allowed.
+ * answer comes back. Keeping every call site on one function per file type is what
+ * stops them from disagreeing about what's allowed.
  */
 
 /**
@@ -46,6 +46,35 @@ export function pdfUploadError(file: File): string | null {
   // vaguer message than the plain truth we can tell here.
   if (file.size === 0) {
     return "That file is empty. Try re-exporting the PDF and uploading it again.";
+  }
+
+  return null;
+}
+
+/**
+ * The image types the editor's Insert → Image accepts, as an `accept` attribute
+ * and as the set the check below tests against.
+ *
+ * Matches what the API stores. SVG is deliberately absent there — it's a document
+ * that can carry script rather than a bitmap — so offering it in the file picker
+ * would only produce a rejected upload.
+ */
+export const IMAGE_ACCEPT = "image/png,image/jpeg,image/webp";
+
+const IMAGE_TYPES = new Set(IMAGE_ACCEPT.split(","));
+
+/** Returns why this image can't be uploaded, or `null` if it can. */
+export function imageUploadError(file: File): string | null {
+  if (!IMAGE_TYPES.has(file.type)) {
+    return "That file isn't a PNG, JPEG or WebP image.";
+  }
+
+  if (file.size > MAX_UPLOAD_BYTES) {
+    return `That image is ${formatBytes(file.size)}, and the limit is ${formatBytes(MAX_UPLOAD_BYTES)}. Try exporting it at a smaller size.`;
+  }
+
+  if (file.size === 0) {
+    return "That file is empty. Try saving the image again and re-adding it.";
   }
 
   return null;

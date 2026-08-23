@@ -16,7 +16,9 @@
     "db:deploy:neon": "bun run scripts/migrate-ws.ts",
     "db:push": "prisma db push",
     "db:seed": "bun run src/seed.ts",
+    "db:reseed-samples": "bun run scripts/reseed-samples.ts",
     "db:studio": "prisma studio",
+    "check:sample-drift": "bun run scripts/check-sample-drift.ts",
     "lint": "eslint . --max-warnings 0",
     "check-types": "tsc --noEmit"
   },

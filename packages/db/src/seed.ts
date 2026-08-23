@@ -1,5 +1,12 @@
 import type { PlanKey } from "@repo/types";
-import { PLAN_DEFAULTS, PLAN_KEYS, themeSchema, resumeContentSchema } from "@repo/types";
+import {
+  PLAN_DEFAULTS,
+  PLAN_KEYS,
+  createBlankCanvasContent,
+  isBlankTemplate,
+  themeSchema,
+  resumeContentSchema,
+} from "@repo/types";
 import { Prisma, prisma } from "./index.js";
 import { SAMPLE_CONTENT } from "./sample-content.js";
 import { SAMPLE_CONTENT_BY_PROFESSION } from "./samples/index.js";
@@ -11,11 +18,16 @@ async function main() {
   // Fail loudly at seed time rather than shipping a template the renderer or
   // the API's Zod validation would later reject.
   const sampleContent = resumeContentSchema.parse(SAMPLE_CONTENT);
+  // The blank canvas previews as what it is: one empty heading on an empty page.
+  // Sharing the general sample would show a fully written resume behind a card
+  // that promises no structure at all.
+  const blankSample = resumeContentSchema.parse(createBlankCanvasContent());
 
   const templateIdBySlug = new Map<string, string>();
 
   for (const template of ALL_TEMPLATES) {
     const defaultTheme = themeSchema.parse(template.defaultTheme);
+    const content = isBlankTemplate(template.slug) ? blankSample : sampleContent;
 
     const row = await prisma.template.upsert({
       where: { slug: template.slug },
@@ -26,7 +38,7 @@ async function main() {
         category: template.category,
         previewImageUrl: `/templates/${template.slug}.png`,
         defaultTheme,
-        sampleContent,
+        sampleContent: content,
       },
       update: {
         name: template.name,
@@ -34,7 +46,7 @@ async function main() {
         category: template.category,
         previewImageUrl: `/templates/${template.slug}.png`,
         defaultTheme,
-        sampleContent,
+        sampleContent: content,
       },
     });
 

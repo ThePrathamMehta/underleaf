@@ -42,7 +42,7 @@ import { Segmented } from "../../../components/editor/controls";
  * variable a purpose reads, and the server never sends a value back.
  */
 
-/** The four features, then the catch-all — the order the cards render in. */
+/** Every feature, then the catch-all — the order the cards render in. */
 const PURPOSE_ORDER: AiPurpose[] = [...AI_FEATURE_PURPOSES, "all"];
 
 /**
@@ -63,6 +63,8 @@ const PURPOSE_HINTS: Record<AiPurpose, string> = {
   ats: "Runs on demand against the whole document. Cheap and fast is usually right.",
   jdMatch: "Compares a job description to the resume and suggests specific fixes.",
   coverLetter: "Writes the letter itself, so output quality is what shows.",
+  latexImport:
+    "Reads a pasted .tex file when the deterministic parser can't. Runs once per import, and only as a fallback.",
   all: "Used for any feature above that has no model of its own.",
 };
 

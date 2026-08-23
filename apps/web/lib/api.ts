@@ -16,12 +16,14 @@ import type {
   GenerateCoverLetterBody,
   JdCompareResponse,
   JdComparisonSummary,
+  LatexImportResult,
   PdfDocumentDto,
   PdfDocumentSummaryDto,
   PlanDto,
   ProfessionDto,
   PublicUser,
   RenamePdfDocumentBody,
+  ResumeContent,
   ResumeWithTemplateDto,
   SendChatBody,
   SubscriptionDto,
@@ -276,8 +278,24 @@ export const api = {
     blank?: boolean;
     /** Slug of the profession being browsed; picks that profession's sample. */
     profession?: string;
+    /** Content from `importLatex`, saved with the resume so an import is one write. */
+    importedContent?: ResumeContent;
   }) {
     return request<{ resume: ResumeWithTemplateDto }>("/resumes", { method: "POST", body });
+  },
+
+  /**
+   * Reads a pasted `.tex` source into resume content — and saves nothing. The
+   * caller holds the result and passes it to `createResume` once the user has
+   * agreed to it, which is what makes an unwanted import cost a closed modal
+   * rather than a resume to delete.
+   */
+  importLatex(latexSource: string, signal?: AbortSignal) {
+    return request<LatexImportResult>("/resumes/import/latex", {
+      method: "POST",
+      body: { latexSource },
+      signal,
+    });
   },
 
   updateResume(id: string, body: UpdateResumeBody, signal?: AbortSignal) {
@@ -311,6 +329,21 @@ export const api = {
     return `${API_URL}/auth/${provider}`;
   },
 
+  // --- Images ---
+
+  /**
+   * Uploads an image and returns the absolute URL to reference it by.
+   *
+   * Absolute, and stored in the document as-is: it's read back by the editor
+   * canvas, the dashboard thumbnails and the server-side export, and an absolute
+   * URL is the one form all three can use without being told the API's base.
+   */
+  uploadImage(file: File, signal?: AbortSignal) {
+    const form = new FormData();
+    form.append("file", file);
+    return upload<{ url: string }>("/uploads/image", form, signal);
+  },
+
   // --- PDF editing ---
 
   uploadPdf(file: File, signal?: AbortSignal) {
@@ -318,7 +351,6 @@ export const api = {
     form.append("file", file);
     return upload<{ document: PdfDocumentDto }>("/pdfs", form, signal);
   },
-
   pdfs() {
     return request<{ documents: PdfDocumentSummaryDto[] }>("/pdfs");
   },

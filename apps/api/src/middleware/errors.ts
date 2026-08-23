@@ -33,6 +33,8 @@ export const notFound = (what = "Resource") => new HttpError(404, `${what} not f
 export const badRequest = (message: string) => new HttpError(400, message);
 export const unauthorized = (message = "Not authenticated") => new HttpError(401, message);
 export const forbidden = (message = "Not allowed") => new HttpError(403, message);
+export const tooManyRequests = (message: string, retryAfterSeconds?: number) =>
+  new HttpError(429, message, retryAfterSeconds ? { retryAfterSeconds } : undefined);
 
 /** Wraps an async handler so a rejected promise reaches the error middleware. */
 export function asyncHandler<T extends Request>(

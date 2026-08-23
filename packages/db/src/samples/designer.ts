@@ -55,9 +55,8 @@ export const DESIGNER_SAMPLE: ResumeContent = {
           endDate: "Present",
           bullets: [
             "Own the money-movement surface — transfers, scheduling and limits — used by 2.4M monthly active customers.",
-            "Redesigned the transfer flow around a single confirm step, cutting drop-off 34% and support contacts about failed transfers by half.",
-            "Created and maintain Harbour, the company design system: 94 Figma components with matching React primitives, used by 40 engineers.",
-            "Run a fortnightly critique for eight designers, and introduced the written design-review doc that replaced ad hoc Slack feedback.",
+            "Redesigned the transfer flow around a single confirm step, cutting drop-off 34% and failed-transfer support contacts by half.",
+            "Created and maintain Harbour, the company design system: 94 Figma components with matching React primitives.",
           ],
         },
         {
@@ -70,7 +69,7 @@ export const DESIGNER_SAMPLE: ResumeContent = {
           bullets: [
             "Sole designer for the subscriber-facing app through a growth from 60K to 900K accounts.",
             "Rebuilt the plan-selection page; the variant lifted paid conversion 18% and became the permanent default.",
-            "Established the accessibility baseline — WCAG 2.1 AA contrast, focus order, reduced motion — and fixed 140 existing violations.",
+            "Established the accessibility baseline — WCAG 2.1 AA contrast, focus order, reduced motion.",
           ],
         },
         {
@@ -101,7 +100,7 @@ export const DESIGNER_SAMPLE: ResumeContent = {
           startDate: "2023",
           endDate: "Present",
           bullets: [
-            "Consolidated four divergent component libraries into one tokenised system, taking new-feature design time from roughly two weeks to four days.",
+            "Consolidated four divergent component libraries into one tokenised system, taking new-feature design time from two weeks to four days.",
           ],
         },
         {
@@ -112,7 +111,7 @@ export const DESIGNER_SAMPLE: ResumeContent = {
           startDate: "2024",
           endDate: "2024",
           bullets: [
-            "Diary study with 22 customers found the failure was ambiguity about timing, not the form itself; the fix was a plain-language arrival estimate rather than fewer fields.",
+            "Diary study with 22 customers found the failure was ambiguity about timing, not the form; the fix was a plain-language arrival estimate.",
           ],
         },
       ],

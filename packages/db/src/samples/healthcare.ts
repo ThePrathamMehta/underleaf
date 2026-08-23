@@ -10,9 +10,12 @@ import type { ResumeContent } from "@repo/types";
  * unlicensed physician, and both carry expiry dates the reader checks.
  *
  * Fits one page by shortening the *evidence*, never the credentials: training
- * keeps all four entries and licensure all four lines, while clinical bullets and
- * the publication list give up the room. A physician CV legitimately runs longer
- * than this, which is what adding a page is for.
+ * keeps all four entries and licensure all three lines, while clinical bullets and
+ * the publication list give up the room. The chief residency appears once, as a
+ * line under the residency that earned it, rather than twice — a second entry
+ * repeating a date already on the page is the cheapest thing here to cut. A
+ * physician CV legitimately runs longer than this, which is what adding a page is
+ * for.
  */
 export const HEALTHCARE_SAMPLE: ResumeContent = {
   personalInfo: {
@@ -36,7 +39,7 @@ export const HEALTHCARE_SAMPLE: ResumeContent = {
       items: [
         {
           id: "itm_summary",
-          text: "Cardiology fellow completing advanced heart failure training, board certified in Internal Medicine. Clinical focus on cardiogenic shock and mechanical circulatory support.",
+          text: "Cardiology fellow completing advanced heart failure training, board certified in Internal Medicine. Focus on cardiogenic shock and mechanical circulatory support.",
         },
       ],
     },
@@ -131,18 +134,7 @@ export const HEALTHCARE_SAMPLE: ResumeContent = {
           endDate: "Present",
           bullets: [
             "Manage a 12-bed cardiac intensive care service, supervising two residents and four students.",
-            "Co-authored the institutional cardiogenic shock protocol, adopted hospital-wide in 2025 and associated with a 9% mortality reduction.",
-          ],
-        },
-        {
-          id: "itm_exp2",
-          org: "Massachusetts General Hospital",
-          role: "Chief Resident, Internal Medicine",
-          location: "Boston, MA",
-          startDate: "Jul 2022",
-          endDate: "Jun 2023",
-          bullets: [
-            "Directed scheduling, didactics and evaluation for a residency of 168 house officers.",
+            "Co-authored the institutional cardiogenic shock protocol, adopted hospital-wide in 2025 alongside a 9% mortality reduction.",
           ],
         },
       ],
@@ -157,14 +149,14 @@ export const HEALTHCARE_SAMPLE: ResumeContent = {
         {
           id: "itm_res1",
           heading: "Risk Stratification for Durable LVAD Candidacy in Cardiogenic Shock",
-          subheading: "Principal Investigator — cohort of 812 shock activations; K23 in preparation",
+          subheading: "Principal Investigator — cohort of 812 shock activations",
           dateRange: "2024 – Present",
           bullets: [],
         },
         {
           id: "itm_res2",
           heading: "Selected Publications",
-          subheading: "11 peer-reviewed articles, including <i>JACC Heart Fail</i> and <i>Circ Cardiovasc Imaging</i>; full list on request",
+          subheading: "11 peer-reviewed articles, including <i>JACC Heart Fail</i>; full list on request",
           dateRange: "2019 – 2026",
           bullets: [],
         },
@@ -180,7 +172,7 @@ export const HEALTHCARE_SAMPLE: ResumeContent = {
         {
           id: "itm_sk1",
           category: "Procedures",
-          skills: ["Right/Left Heart Catheterization", "Temporary MCS", "TTE and TEE", "Pericardiocentesis"],
+          skills: ["Right/Left Heart Catheterization", "Temporary MCS", "TTE and TEE"],
         },
         {
           id: "itm_sk2",

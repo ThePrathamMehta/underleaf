@@ -33,7 +33,7 @@ export const MARKETING_SAMPLE: ResumeContent = {
       items: [
         {
           id: "itm_summary",
-          text: "Demand generation lead who has hit or beaten pipeline target in eleven of the last twelve quarters, most recently sourcing $34M in qualified pipeline against a $26M goal. Built the full-funnel attribution model that redirected 40% of a $6M budget away from channels that were taking credit for demand they did not create.",
+          text: "Demand generation lead who has hit or beaten pipeline target in eleven of the last twelve quarters, most recently sourcing $34M in qualified pipeline against a $26M goal. Built the full-funnel attribution model that redirected 40% of a $6M budget.",
         },
       ],
     },
@@ -52,11 +52,10 @@ export const MARKETING_SAMPLE: ResumeContent = {
           startDate: "Mar 2022",
           endDate: "Present",
           bullets: [
-            "Own a $6.2M annual programme budget across paid, events, webinars and lifecycle; sourced $34M in qualified pipeline in FY25 against a $26M target (131% attainment).",
-            "Rebuilt attribution from last-touch to a W-shaped model in HubSpot and Snowflake, revealing that paid search was claiming 38% of credit for demand originated by field events.",
-            "Cut blended cost per SQL from $840 to $517 in four quarters by reallocating that spend and killing two underperforming syndication vendors.",
-            "Launched an ABM programme for 120 enterprise accounts with the sales team; those accounts closed at 2.4× the rate of the general funnel.",
-            "Manage three marketers and an agency of six, and run the weekly pipeline review with the CRO.",
+            "Own a $6.2M annual programme budget across paid, events, webinars and lifecycle; sourced $34M in qualified pipeline in FY25 against a $26M target (131%).",
+            "Rebuilt attribution from last-touch to a W-shaped model in HubSpot and Snowflake, revealing that paid search was claiming 38% of field-event credit.",
+            "Cut blended cost per SQL from $840 to $517 in four quarters by reallocating that spend and killing two syndication vendors.",
+            "Launched an ABM programme for 120 enterprise accounts; those accounts closed at 2.4× the rate of the general funnel.",
           ],
         },
         {
@@ -69,7 +68,6 @@ export const MARKETING_SAMPLE: ResumeContent = {
           bullets: [
             "Grew inbound MQLs from 310 to 1,450 per month over 30 months while holding cost per MQL flat.",
             "Ran the lifecycle programme end to end — 40+ nurture tracks in Marketo — lifting MQL-to-SQL conversion from 12% to 19%.",
-            "Owned the annual user conference (900 attendees), which produced $8.1M in influenced pipeline against a $410K cost.",
           ],
         },
         {
@@ -81,7 +79,6 @@ export const MARKETING_SAMPLE: ResumeContent = {
           endDate: "Jun 2019",
           bullets: [
             "Closed $2.3M in new ARR against a $1.8M quota (128%); President's Club, 2018.",
-            "Carried a full cycle from prospecting to close, averaging 47 days and a $62K ACV.",
           ],
         },
       ],
@@ -106,7 +103,7 @@ export const MARKETING_SAMPLE: ResumeContent = {
         {
           id: "itm_sk3",
           category: "Platforms",
-          skills: ["Salesforce", "HubSpot", "Marketo", "6sense", "Outreach", "Google Ads", "LinkedIn Campaign Manager"],
+          skills: ["Salesforce", "HubSpot", "Marketo", "6sense", "Outreach", "Google Ads"],
         },
       ],
     },
@@ -146,13 +143,6 @@ export const MARKETING_SAMPLE: ResumeContent = {
           id: "itm_ct2",
           name: "HubSpot Marketing Software Certified",
           issuer: "HubSpot Academy",
-          date: "2023",
-          link: "",
-        },
-        {
-          id: "itm_ct3",
-          name: "Google Ads Search Certification",
-          issuer: "Google",
           date: "2023",
           link: "",
         },

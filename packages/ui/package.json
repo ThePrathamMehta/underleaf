@@ -9,6 +9,7 @@
     "./resume/rich-text": "./src/resume/rich-text.ts",
     "./resume/primitives": "./src/resume/primitives.tsx",
     "./resume/paginate": "./src/resume/paginate.ts",
+    "./resume/fit-page": "./src/resume/fit-page.ts",
     "./resume/fonts": "./src/resume/fonts.ts",
     "./tokens.css": "./src/tokens.css",
     "./*": "./src/*.tsx"

@@ -8,5 +8,7 @@ export * from "./chat";
 export * from "./ats";
 export * from "./jd";
 export * from "./cover-letter";
+export * from "./latex-import";
+export * from "./export-name";
 export * from "./factories";
 export * from "./billing";

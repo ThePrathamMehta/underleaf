@@ -9,10 +9,10 @@ import type { ResumeContent } from "@repo/types";
  * vs co-I), because that distinction is the whole question at tenure review.
  *
  * Trimmed to a single page, which for a CV means *selected* rather than
- * complete: three grants, three papers, and teaching folded in with service. A
- * real CV of this shape runs to five pages and is meant to — but a default that
- * opens on two sheets asks the user to delete before they can edit, and the
- * publication list is the one section that grows on its own anyway.
+ * complete: two grants, two papers, and teaching folded in with service. A real
+ * CV of this shape runs to five pages and is meant to — but a default that opens
+ * on two sheets asks the user to delete before they can edit, and the publication
+ * list is the one section that grows on its own anyway.
  */
 export const ACADEMIC_SAMPLE: ResumeContent = {
   personalInfo: {
@@ -37,7 +37,7 @@ export const ACADEMIC_SAMPLE: ResumeContent = {
       items: [
         {
           id: "itm_summary",
-          text: "Computational models of memory consolidation, with emphasis on how sleep-dependent replay shapes generalisation. Current work combines high-density EEG with recurrent network models of interference.",
+          text: "Computational models of memory consolidation, with emphasis on how sleep-dependent replay shapes generalisation. Current work combines high-density EEG with recurrent network models.",
         },
       ],
     },
@@ -85,7 +85,7 @@ export const ACADEMIC_SAMPLE: ResumeContent = {
           startDate: "Sep 2023",
           endDate: "Present",
           bullets: [
-            "Direct a lab of two graduate students, one postdoc and five undergraduates; secured $1.9M in external funding within the first two years.",
+            "Direct a lab of two graduate students, one postdoc and five undergraduates; secured $1.9M in external funding in two years.",
           ],
         },
         {
@@ -96,7 +96,7 @@ export const ACADEMIC_SAMPLE: ResumeContent = {
           startDate: "Sep 2020",
           endDate: "Aug 2023",
           bullets: [
-            "Developed the recurrent network framework underlying three first-author papers, released as an open-source package with 1,100+ installs.",
+            "Developed the recurrent network framework underlying three first-author papers, released as an open-source package.",
           ],
         },
       ],
@@ -145,13 +145,6 @@ export const ACADEMIC_SAMPLE: ResumeContent = {
           dateRange: "2024",
           bullets: [],
         },
-        {
-          id: "itm_pub3",
-          heading: "Ferreira K, Salinas M, Vogt H. Interference resolution during slow-wave sleep.",
-          subheading: "<i>Journal of Neuroscience</i>, 43(31), 5620–5634",
-          dateRange: "2023",
-          bullets: [],
-        },
       ],
     },
     {
@@ -173,7 +166,7 @@ export const ACADEMIC_SAMPLE: ResumeContent = {
           id: "itm_srv2",
           heading: "Invited talks and service",
           subheading:
-            "Cognitive Neuroscience Society symposium; colloquia at MIT, NYU and Toronto; reviewer for <i>eLife</i> and <i>Cognition</i>",
+            "Cognitive Neuroscience Society symposium; colloquia at MIT and NYU; reviewer for <i>eLife</i>",
           dateRange: "2021 – Present",
           bullets: [],
         },

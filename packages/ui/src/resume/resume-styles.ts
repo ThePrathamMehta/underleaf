@@ -466,6 +466,45 @@ ${options.fontFaces ?? ""}
   margin-top: var(--rd-gap-entry);
 }
 
+/* An image the user placed between entries. The wrapper is what carries the
+   rhythm and the alignment; the img itself only carries the width, which is a
+   percentage of whatever column it landed in. */
+.rd-item-image {
+  margin-top: var(--rd-gap-entry);
+  /* Flex rather than text-align, so the alignment applies to the image box even
+     though an img is inline by default and would otherwise sit on a baseline
+     with a descender's worth of space under it. */
+  display: flex;
+}
+
+.rd-item-image[data-align="center"] {
+  justify-content: center;
+}
+
+.rd-item-image[data-align="right"] {
+  justify-content: flex-end;
+}
+
+.rd-item-image img {
+  display: block;
+  /* Width comes from the item's own widthPercent; the height follows the
+     intrinsic aspect ratio, because a headshot, a logo and a QR code all look
+     wrong stretched. */
+  height: auto;
+}
+
+/* A rule the user placed between entries. The line itself is an .rd-rule, the
+   same element that sits under a section heading, so every per-template override
+   of that class — Classic's darker line, and any added later — applies here too
+   without this rule having to know about them. The wrapper only positions it. */
+.rd-item-divider {
+  margin-top: var(--rd-gap-entry);
+}
+
+.rd-item-divider .rd-rule {
+  margin-bottom: 0;
+}
+
 /* --- Skills --- */
 
 .rd-skill-row {
@@ -478,6 +517,88 @@ ${options.fontFaces ?? ""}
 
 .rd-skill-label {
   font-weight: 700;
+}
+
+/* --- Blank canvas ---
+
+   Freeform blocks are positioned against the sheet itself rather than the theme
+   margin, so the layer spans the whole page and ignores its padding: on a canvas
+   the user decides where the margin is, and changing marginSize afterwards must
+   not move anything they placed. Every block's own left/top comes from its data,
+   in the millimetres the rest of the renderer already speaks. */
+
+/* Negative insets rather than inset: 0, because an absolutely positioned child
+   resolves against its ancestor's *padding* box — so inset: 0 would have quietly
+   started every coordinate at the theme margin instead of the corner of the page. */
+.rd-free-layer {
+  position: absolute;
+  top: calc(-1 * var(--rd-margin-top));
+  right: calc(-1 * var(--rd-margin));
+  bottom: calc(-1 * var(--rd-margin));
+  left: calc(-1 * var(--rd-margin));
+}
+
+.rd-free-block {
+  position: absolute;
+  /* Blocks are placed, not flowed, so a wide one has to wrap rather than push
+     the sheet sideways. */
+  overflow-wrap: break-word;
+}
+
+/* A name-sized default for a heading that carries no explicit size, matching the
+   header's name in the flow templates. The block's own inline font-size wins
+   when the user has set one. */
+.rd-free-heading {
+  font-family: var(--rd-heading-font);
+  font-size: var(--rd-size-name);
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.rd-free-text {
+  /* Preserved so a canvas keeps the blank lines someone typed to space their own
+     text out — there is no section rhythm here to do it for them. */
+  white-space: pre-wrap;
+}
+
+/* Centred in the block rather than filling it: the box is the grab target, the
+   rule is what prints. */
+.rd-free-rule {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 0.5pt;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.rd-free-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* The dragged box is authoritative — the image fits inside it whole rather than
+     being cropped to it, so resizing can't silently cut someone's head off. */
+  object-fit: contain;
+}
+
+/* An image block whose upload hasn't landed yet. Screen-only, via the canvas
+   host: an empty frame in an exported PDF would just be a grey rectangle. */
+@media screen {
+  .rd-canvas-host .rd-free-image-empty {
+    position: absolute;
+    inset: 0;
+    border: 0.5pt dashed currentColor;
+    opacity: 0.35;
+  }
+
+  /* The flowed equivalent. It needs a height of its own, unlike the freeform one
+     which fills a box the user already sized. */
+  .rd-canvas-host .rd-item-image-empty {
+    height: 24mm;
+    border: 0.5pt dashed currentColor;
+    opacity: 0.35;
+  }
 }
 
 /* --- Two-column / sidebar layouts --- */

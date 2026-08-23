@@ -91,10 +91,9 @@ export const LAWYER_SAMPLE: ResumeContent = {
           startDate: "Sep 2021",
           endDate: "Present",
           bullets: [
-            "Second-chaired a three-week jury trial in the S.D.N.Y. defending a $140M breach-of-contract claim; conducted direct examination of two fact witnesses and drafted the Rule 50 motion.",
+            "Second-chaired a three-week S.D.N.Y. jury trial defending a $140M breach-of-contract claim; examined two fact witnesses and drafted the Rule 50 motion.",
             "Drafted the successful motion to dismiss a putative securities class action on materiality grounds, disposing of all federal claims before discovery.",
             "Manage document review and privilege logging for a multidistrict antitrust matter spanning 2.1 million documents.",
-            "Argued two contested discovery motions in New York Supreme Court, Commercial Division, prevailing on both.",
           ],
         },
         {
@@ -105,7 +104,7 @@ export const LAWYER_SAMPLE: ResumeContent = {
           startDate: "Aug 2020",
           endDate: "Aug 2021",
           bullets: [
-            "Drafted 24 opinions and orders on summary judgment, class certification and Daubert motions in civil and criminal matters.",
+            "Drafted 24 opinions and orders on summary judgment, class certification and Daubert motions.",
             "Managed the chambers' patent docket, including claim construction in four Hatch-Waxman cases.",
           ],
         },

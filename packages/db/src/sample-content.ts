@@ -4,6 +4,12 @@ import type { ResumeContent } from "@repo/types";
  * One realistic sample document, reused by every seeded template. Sharing it is
  * deliberate: it proves each template renders the *same* content correctly,
  * which is the contract templates have to honour.
+ *
+ * Sized to leave a few lines spare on the page, not to fill it. A sample that
+ * lands at 99% is technically one page and practically a trap — the first slider
+ * nudge or added bullet spills it onto a second sheet, and the user never asked
+ * for that. `bun run check:one-page` in apps/api reports the fill of every
+ * (sample, template) pair; keep the worst of them under about 90%.
  */
 export const SAMPLE_CONTENT: ResumeContent = {
   personalInfo: {
@@ -28,7 +34,7 @@ export const SAMPLE_CONTENT: ResumeContent = {
       items: [
         {
           id: "itm_summary",
-          text: "Backend-leaning full-stack engineer with seven years building high-throughput data infrastructure. Led the migration of a monolithic billing service to event-driven microservices, cutting p99 latency by 68%. Comfortable owning a system from schema design through on-call.",
+          text: "Backend-leaning full-stack engineer with seven years building high-throughput data infrastructure. Led a monolithic billing service to event-driven microservices, cutting p99 latency by 68%.",
         },
       ],
     },
@@ -47,10 +53,9 @@ export const SAMPLE_CONTENT: ResumeContent = {
           startDate: "Mar 2022",
           endDate: "Present",
           bullets: [
-            "Designed and shipped an event-sourced ledger processing 40M transactions/day, replacing a batch pipeline and reducing settlement lag from 6 hours to under 90 seconds.",
-            "Cut infrastructure spend $310K/year by introducing tiered storage and rewriting the hottest query path to use covering indexes.",
+            "Designed an event-sourced ledger processing 40M transactions/day, cutting settlement lag from 6 hours to under 90 seconds.",
+            "Cut infrastructure spend $310K/year with tiered storage and a rewrite of the hottest query path to use covering indexes.",
             "Led a team of four through a zero-downtime Postgres 12 to 16 migration across 22 services.",
-            "Established the service-level objective review process now used by all eight platform teams.",
           ],
         },
         {
@@ -61,9 +66,8 @@ export const SAMPLE_CONTENT: ResumeContent = {
           startDate: "Jul 2019",
           endDate: "Feb 2022",
           bullets: [
-            "Built the multi-tenant permissions layer backing 1,200 enterprise accounts, with row-level isolation enforced in Postgres.",
+            "Built the multi-tenant permissions layer backing 1,200 enterprise accounts, with row-level isolation in Postgres.",
             "Reduced median API response time 44% by replacing N+1 ORM access patterns with batched data loaders.",
-            "Introduced contract testing between the web client and six backend services, eliminating a recurring class of deploy-time breakages.",
           ],
         },
         {
@@ -74,8 +78,8 @@ export const SAMPLE_CONTENT: ResumeContent = {
           startDate: "Jun 2018",
           endDate: "Jun 2019",
           bullets: [
-            "Shipped the customer-facing analytics dashboard used by 80% of active accounts within the first quarter of launch.",
-            "Automated the release pipeline, taking deploys from a 40-minute manual checklist to a 6-minute single command.",
+            "Shipped the customer-facing analytics dashboard used by 80% of active accounts in its first quarter.",
+            "Automated the release pipeline, taking deploys from a 40-minute manual checklist to a 6-minute command.",
           ],
         },
       ],
@@ -138,7 +142,6 @@ export const SAMPLE_CONTENT: ResumeContent = {
           endDate: "Present",
           bullets: [
             "Open-source log search engine ingesting 200GB/day on a single node; 900+ GitHub stars.",
-            "Implemented a custom inverted index that answers typical queries in under 50ms.",
           ],
         },
         {
@@ -149,7 +152,7 @@ export const SAMPLE_CONTENT: ResumeContent = {
           startDate: "2021",
           endDate: "2022",
           bullets: [
-            "Browser-native CSV transformation tool handling 1M-row files entirely client-side with no server round-trip.",
+            "Browser-native CSV transformation handling 1M-row files entirely client-side.",
           ],
         },
       ],

@@ -235,6 +235,25 @@ export function sanitizeInlineHtml(input: string): string {
   return out.join("");
 }
 
+/**
+ * Unwraps every `<a>` in already-sanitized HTML, keeping its label and any
+ * formatting inside it.
+ *
+ * For renders where the document is a *picture* of a resume rather than a resume:
+ * a thumbnail is `aria-hidden` and `pointer-events-none`, and its call sites sit
+ * inside a `<Link>` to the editor — where a nested `<a>` is invalid HTML that
+ * breaks hydration, and where a focusable link inside a decorative preview would
+ * land in the tab order anyway.
+ *
+ * Only safe on the output of `sanitizeInlineHtml`, which balances its tags and
+ * escapes `>` inside attribute values — so `[^>]*` cannot run past the tag, and
+ * dropping the wrappers cannot unbalance what's left.
+ */
+export function stripAnchors(sanitized: string): string {
+  if (!sanitized.includes("<a")) return sanitized;
+  return sanitized.replace(/<a\b[^>]*>/gi, "").replace(/<\/a\s*>/gi, "");
+}
+
 const ENTITIES: Record<string, string> = {
   amp: "&",
   lt: "<",

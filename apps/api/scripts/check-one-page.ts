@@ -17,24 +17,48 @@
  */
 import puppeteer, { type Page } from "puppeteer";
 import type { ResumeContent, Theme } from "@repo/types";
+import { isBlankTemplate } from "@repo/types";
 import { ALL_TEMPLATES, PROFESSIONS } from "@repo/db/catalog";
 import { SAMPLE_CONTENT } from "@repo/db/sample-content";
 import { SAMPLE_CONTENT_BY_PROFESSION } from "@repo/db/samples";
 import {
+  fillRatio,
   forcedBreakIds,
   measureArgs,
   measureFlow,
   packBlocks,
-  type MeasuredFlow,
 } from "@repo/ui/resume/paginate";
 import { renderMeasureHtml, renderResumeHtml } from "../src/services/pdf.js";
 
 /**
  * How full sheet one has to be before a one-page resume reads as finished rather
- * than as a stub. Below about three-quarters there is a visible band of dead
- * space above the bottom margin, which is what makes a sample look unfinished.
+ * than as a stub. Below this there is a visible band of dead space above the bottom
+ * margin, which is what makes a sample look unfinished.
+ *
+ * Set well under `TARGET_FILL`, the figure each template's `defaultTheme` is tuned
+ * to by `check:tune-themes`, because a template's theme is shared by every document
+ * that can reach it and those documents are not the same length. The tuner grows a
+ * theme until the *fullest* reachable document approaches the target — any further
+ * and that one would be a typed word from a second sheet — so a shorter sibling
+ * under the same theme necessarily lands lower, by however much shorter it is. The
+ * `general` sample is about a fifth shorter than the longest profession samples,
+ * and its rows sit ten-odd points below target as a direct result.
+ *
+ * So a row under this threshold is a statement about content length, not a defect in
+ * the theme: it marks the combinations where sharing one theme costs the most, which
+ * is worth a human glance and nothing more. Closing those gaps would mean either
+ * per-(profession, template) themes or lengthening the short samples — and the
+ * latter would invalidate every tuned number here, since the tuning was measured
+ * against the samples exactly as they stand.
+ *
+ * This used to sit at 0.74, with a note that the dense layouts — `jakes--compact`
+ * and the two-column `deedy` family — were *expected* to come in low, because one
+ * shared sample cannot fill templates that differ by ~22 points in capacity. That
+ * reasoning applied when every template rendered the same sample at roughly the
+ * same type size. Now the typography is tuned per template, so those layouts are no
+ * longer special and a low fill is a real finding again.
  */
-const MIN_FILL = 0.74;
+const MIN_FILL = 0.84;
 
 /** The mirror's root, matching what `renderMeasureHtml` emits. */
 const MEASURE_ROOT = "[data-measure-root]";
@@ -79,6 +103,9 @@ function combinations(filter: string | undefined): Combination[] {
   };
 
   for (const template of ALL_TEMPLATES) {
+    // The blank canvas has no sample to fit: its content is one empty heading,
+    // and "is the first sheet three-quarters full" is not a question about it.
+    if (isBlankTemplate(template.slug)) continue;
     add("template default", template.slug, SAMPLE_CONTENT);
   }
 
@@ -90,23 +117,6 @@ function combinations(filter: string | undefined): Combination[] {
   }
 
   return out;
-}
-
-/**
- * Height sheet one carries, per the same arithmetic `packBlocks` uses.
- *
- * Each column is summed separately and the taller one wins. Two-column templates
- * pack their columns independently against the full sheet height, so what fills
- * the page is the longer of the two — adding them together would report a
- * comfortable sidebar layout as overfull.
- */
-function fillRatio(flow: MeasuredFlow): number {
-  const used = (column: string) =>
-    flow.blocks
-      .filter((block) => block.column === column)
-      .reduce((sum, block) => sum + block.height + block.gapBefore, flow.headerHeight);
-
-  return Math.max(used("main"), used("side")) / flow.usableHeight;
 }
 
 /** Renders one combination into `page` and reads its sheet count and fill. */

@@ -3,16 +3,19 @@
 import type {
   CertificationItem,
   CustomItem,
+  DividerItem,
   EducationItem,
   ExperienceItem,
+  ImageItem,
   PersonalInfo,
+  PlacedItem,
   ProjectItem,
   Section,
   SkillsItem,
   SummaryItem,
   TextItem,
 } from "@repo/types";
-import { isTextItem } from "@repo/types";
+import { isDividerItem, isImageItem, isTextItem } from "@repo/types";
 import { createContext, useContext } from "react";
 import { EditableLink, EditableText, useResumeEditing, type FieldPath } from "./editable";
 import { htmlToPlainText, isBlankHtml } from "./rich-text";
@@ -318,12 +321,76 @@ function TextBlock({
 }
 
 /**
- * The shared shape of every section body: takes the items this sheet shows,
- * renders any free text blocks itself, and hands the section's own entries back
- * to the caller.
+ * An image the user placed between entries.
  *
- * Written once rather than seven times — a text block looks the same wherever it
- * sits, and only the entries around it differ by section type.
+ * Width is a percentage of the column, so the same item reads correctly in Jake's
+ * full-width column and in a Deedy sidebar a third as wide. Height is left to the
+ * intrinsic aspect ratio: a resume image is a headshot, a logo or a QR code, and
+ * all three look wrong stretched.
+ *
+ * Renders a placeholder frame while `src` is empty. That is the state between the
+ * user picking a file and the upload finishing, and an item that only appears once
+ * the bytes land would leave the click that inserted it looking like it failed.
+ */
+function ImageBlock({
+  item,
+  sectionId,
+  itemIndex,
+}: {
+  item: ImageItem;
+  sectionId: string;
+  itemIndex: number;
+}) {
+  const width = `${item.widthPercent ?? 40}%`;
+
+  return (
+    <div
+      className="rd-item-image"
+      data-align={item.align ?? "left"}
+      data-item-id={item.id}
+      // Carried on the wrapper rather than the <img>, so the pagination pass
+      // measures the space the image occupies including its own margins.
+      {...blockAttrs("entry", sectionId, itemIndex)}
+    >
+      {item.src ? (
+        // A plain <img> on purpose: this is a print renderer, and next/image needs
+        // a layout server and emits a wrapper Puppeteer can't size. (No disable
+        // directive — `@next/next/no-img-element` isn't part of this package's
+        // config, so naming it here is itself a lint warning.)
+        <img src={item.src} alt={item.alt ?? ""} style={{ width }} draggable={false} />
+      ) : (
+        <div className="rd-item-image-empty" style={{ width }} aria-hidden />
+      )}
+    </div>
+  );
+}
+
+/**
+ * A horizontal rule between entries.
+ *
+ * The line is a `.rd-rule` — the very element that sits under a section heading —
+ * so one inserted into Jake's matches the rules already on that page, and one
+ * inserted into Classic picks up that template's heavier line for free.
+ */
+function DividerBlock({ item, sectionId, itemIndex }: { item: DividerItem; sectionId: string; itemIndex: number }) {
+  return (
+    <div
+      className="rd-item-divider"
+      data-item-id={item.id}
+      {...blockAttrs("entry", sectionId, itemIndex)}
+    >
+      <div className="rd-rule" />
+    </div>
+  );
+}
+
+/**
+ * The shared shape of every section body: takes the items this sheet shows,
+ * renders any placed blocks itself, and hands the section's own entries back to
+ * the caller.
+ *
+ * Written once rather than seven times — a note, an image and a rule each look the
+ * same wherever they sit, and only the entries around them differ by section type.
  *
  * Callers name their entry type explicitly. Inferring it from a union argument
  * works, but only by subtraction, and the two tsconfigs in this repo don't agree
@@ -335,7 +402,7 @@ function SectionItems<E>({
   sectionId,
   children,
 }: {
-  items: (E | TextItem)[];
+  items: (E | PlacedItem)[];
   sectionIndex: number;
   sectionId: string;
   children: (rendered: RenderedItem<E>) => React.ReactNode;
@@ -344,26 +411,47 @@ function SectionItems<E>({
 
   return (
     <>
-      {rendered.map((entry) =>
-        isTextItem(entry.item) ? (
-          <TextBlock
-            key={entry.item.id}
-            item={entry.item}
-            sectionIndex={sectionIndex}
-            sectionId={sectionId}
-            itemIndex={entry.index}
-          />
-        ) : (
-          // Narrowing `entry.item` doesn't narrow `entry` itself, so this states
-          // once what the guard above already established.
-          children(entry as RenderedItem<E>)
-        ),
-      )}
+      {rendered.map((entry) => {
+        // Narrowing `entry.item` doesn't narrow `entry` itself, so each branch
+        // restates once what its guard already established.
+        if (isTextItem(entry.item)) {
+          return (
+            <TextBlock
+              key={entry.item.id}
+              item={entry.item}
+              sectionIndex={sectionIndex}
+              sectionId={sectionId}
+              itemIndex={entry.index}
+            />
+          );
+        }
+        if (isImageItem(entry.item)) {
+          return (
+            <ImageBlock
+              key={entry.item.id}
+              item={entry.item}
+              sectionId={sectionId}
+              itemIndex={entry.index}
+            />
+          );
+        }
+        if (isDividerItem(entry.item)) {
+          return (
+            <DividerBlock
+              key={entry.item.id}
+              item={entry.item}
+              sectionId={sectionId}
+              itemIndex={entry.index}
+            />
+          );
+        }
+        return children(entry as RenderedItem<E>);
+      })}
     </>
   );
 }
 
-export function SummaryBody({ items, sectionIndex, sectionId }: BodyProps<SummaryItem | TextItem>) {
+export function SummaryBody({ items, sectionIndex, sectionId }: BodyProps<SummaryItem | PlacedItem>) {
   return (
     <SectionItems<SummaryItem> items={items} sectionIndex={sectionIndex} sectionId={sectionId}>
       {({ item, index: i }) => (
@@ -382,7 +470,7 @@ export function SummaryBody({ items, sectionIndex, sectionId }: BodyProps<Summar
   );
 }
 
-export function ExperienceBody({ items, sectionIndex, sectionId }: BodyProps<ExperienceItem | TextItem>) {
+export function ExperienceBody({ items, sectionIndex, sectionId }: BodyProps<ExperienceItem | PlacedItem>) {
   return (
     <SectionItems<ExperienceItem> items={items} sectionIndex={sectionIndex} sectionId={sectionId}>
       {({ item, index: i, head, range }) => {
@@ -409,7 +497,7 @@ export function ExperienceBody({ items, sectionIndex, sectionId }: BodyProps<Exp
   );
 }
 
-export function EducationBody({ items, sectionIndex, sectionId }: BodyProps<EducationItem | TextItem>) {
+export function EducationBody({ items, sectionIndex, sectionId }: BodyProps<EducationItem | PlacedItem>) {
   return (
     <SectionItems<EducationItem> items={items} sectionIndex={sectionIndex} sectionId={sectionId}>
       {({ item, index: i, head, range }) => {
@@ -441,7 +529,7 @@ export function EducationBody({ items, sectionIndex, sectionId }: BodyProps<Educ
   );
 }
 
-export function SkillsBody({ items, sectionIndex, sectionId }: BodyProps<SkillsItem | TextItem>) {
+export function SkillsBody({ items, sectionIndex, sectionId }: BodyProps<SkillsItem | PlacedItem>) {
   const editing = useResumeEditing();
 
   return (
@@ -474,7 +562,7 @@ export function SkillsBody({ items, sectionIndex, sectionId }: BodyProps<SkillsI
   );
 }
 
-export function ProjectsBody({ items, sectionIndex, sectionId }: BodyProps<ProjectItem | TextItem>) {
+export function ProjectsBody({ items, sectionIndex, sectionId }: BodyProps<ProjectItem | PlacedItem>) {
   const editing = useResumeEditing();
 
   return (
@@ -507,7 +595,7 @@ export function ProjectsBody({ items, sectionIndex, sectionId }: BodyProps<Proje
   );
 }
 
-export function CertificationsBody({ items, sectionIndex, sectionId }: BodyProps<CertificationItem | TextItem>) {
+export function CertificationsBody({ items, sectionIndex, sectionId }: BodyProps<CertificationItem | PlacedItem>) {
   const editing = useResumeEditing();
 
   return (
@@ -537,7 +625,7 @@ export function CertificationsBody({ items, sectionIndex, sectionId }: BodyProps
   );
 }
 
-export function CustomBody({ items, sectionIndex, sectionId }: BodyProps<CustomItem | TextItem>) {
+export function CustomBody({ items, sectionIndex, sectionId }: BodyProps<CustomItem | PlacedItem>) {
   const editing = useResumeEditing();
 
   return (

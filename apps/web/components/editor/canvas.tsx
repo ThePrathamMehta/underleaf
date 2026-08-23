@@ -2,11 +2,27 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import type { ResumeContent, Theme } from "@repo/types";
-import { isTextItem } from "@repo/types";
-import { ResumeDocument, ResumeEditingProvider, type FieldPath } from "@repo/ui/resume";
+import type { FreeformBlock, PlacedItem, ResumeContent, SectionStarter, Theme } from "@repo/types";
+import {
+  MAX_FREEFORM_PAGES,
+  createDividerItem,
+  createFreeformBlock,
+  createImageItem,
+  createSectionStarterBlock,
+  createTextItem,
+  freeformPageCount,
+  isBlankTemplate,
+  isDividerItem,
+  isImageItem,
+  isPlacedItem,
+  isTextItem,
+  sectionStarterSize,
+} from "@repo/types";
+import { ResumeDocument, ResumeEditingProvider, baseTemplateSlug, type FieldPath } from "@repo/ui/resume";
 import { PAGE_DIMENSIONS } from "@repo/ui/resume/styles";
 import {
+  BLOCK_ATTR,
+  fillRatio,
   forcedBreakIds,
   measureArgs,
   measureFlow,
@@ -14,13 +30,35 @@ import {
   toSingleFlow,
   type PageLayout,
 } from "@repo/ui/resume/paginate";
-
-const MM_TO_PX = 96 / 25.4;
-/** Screen gap between stacked page sheets, matching the CSS in themeToCss. */
-const PAGE_GAP_MM = 6;
+import { searchFill, searchFit } from "@repo/ui/resume/fit-page";
+import { caretSide, columnAtPoint, nearestBox, type Point } from "../../lib/click-to-edit";
+import {
+  INSERTED_BLOCK_MM,
+  MM_TO_PX,
+  PAGE_GAP_MM,
+  STACK_GAP_MM,
+  STACK_INSET_MM,
+  centredBox,
+  clampPosition,
+  mmFromPx,
+  newTextBlockBox,
+  stackedPosition,
+  type Millimetres,
+} from "../../lib/freeform-geometry";
+import { FreeformLayer } from "./freeform-layer";
+import { ImageFrame } from "./image-frame";
 
 /** Root of the hidden mirror the pagination pass measures. */
 const MEASURE_ROOT = "[data-measure-root]";
+
+/** Every text field in the document, as marked by `EditableText`. */
+const FIELD_SELECTOR = "[data-editable-field]";
+
+/** The two flows of a sidebar template. Absent from the single-column layouts. */
+const COLUMN_SELECTOR = ".rd-col-side, .rd-col-main";
+
+/** One freely-placed block on the blank canvas, as marked by `BlankTemplate`. */
+const BLOCK_SELECTOR = "[data-free-block]";
 
 /**
  * How far left of the page the per-item actions sit, and how wide their column
@@ -53,17 +91,67 @@ type DropTarget = { sectionId: string; index: number; anchor: Anchor };
 /** A drag in progress, with every gap it could land in worked out up front. */
 type Drag = { itemId: string; targets: DropTarget[] };
 
+/** A slot in a section's items, as the Insert menu resolves one. */
+type InsertionPoint = { sectionId: string; index: number };
+
+/** What the Insert menu can add. Deliberately these three and no more (v6 §2.4). */
+export type InsertKind = "text" | "image" | "divider";
+
 /**
- * Scrolling, exposed to the editor page.
+ * What an insert produced, so an image upload can fill it in afterwards — or take
+ * it back out if the upload fails.
  *
- * The scroll container and the sheets both live inside the canvas, so it is the
- * only place that can move them. Going through here also keeps every lookup
- * scoped to the visible document — a bare `document.querySelector` would now
- * also match the measuring mirror below.
+ * Two shapes because the two kinds of document hold an image differently: a canvas
+ * block keeps its URL in `content`, while a flowed item keeps it in `src` and needs
+ * its section named to be removed again.
+ */
+export type Inserted =
+  | { kind: "block"; blockId: string }
+  | { kind: "item"; sectionId: string; itemId: string };
+
+/**
+ * Scrolling and inserting, exposed to the editor page.
+ *
+ * The scroll container, the sheets and their measured geometry all live inside the
+ * canvas, so it is the only place that can move them — or work out where a new
+ * block goes. Going through here also keeps every lookup scoped to the visible
+ * document: a bare `document.querySelector` would now also match the measuring
+ * mirror below.
  */
 export type CanvasHandle = {
   scrollToPage: (pageIndex: number) => void;
   scrollToSection: (sectionId: string) => void;
+  /**
+   * Adds one thing and returns what it added, or null when there was nowhere to
+   * put it. `at` is a point in client coordinates — a drop — and without it the
+   * insert lands on the sheet in view, at the caret if there is one.
+   */
+  insert: (kind: InsertKind, at?: Point) => Inserted | null;
+  /**
+   * Blank canvas only: a starter section, stacked under whatever is already on the
+   * page. Null on a template resume, whose sections come from the outline panel.
+   */
+  insertSection: (kind: SectionStarter) => Inserted | null;
+  /**
+   * The loosest theme that would put this document back inside `targetPages`
+   * sheets, or null when tightening alone can't.
+   *
+   * Answered here because the measuring mirror lives here, and the search is
+   * dozens of trial layouts — every one of them a write to the mirror's CSS
+   * variables and a re-read of its geometry, which is only possible from inside
+   * this component. Nothing is applied: the caller decides whether to take it, so
+   * a fit is something a user asked for rather than something that happened.
+   */
+  fitTheme: (targetPages: number, templateDefault?: Theme) => Theme | null;
+  /**
+   * The mirror of `fitTheme`: the theme that would *fill* the page, or null when
+   * the document is already as full as growing the type can make it.
+   *
+   * Same reasons it lives here, and the same restraint — nothing is applied, so a
+   * fill is something the user accepted rather than something that happened to
+   * their document while they typed.
+   */
+  fillTheme: (targetPages: number, templateDefault?: Theme) => Theme | null;
 };
 
 /**
@@ -89,7 +177,15 @@ export function EditorCanvas({
   onAddBullet,
   onAddTextItem,
   onMoveItem,
+  onAddPlacedItem,
+  onResizeImage,
+  onImageFile,
+  onAddBlock,
+  onMoveBlock,
+  onResizeBlock,
+  onRemoveBlock,
   onPagesChange,
+  onFillChange,
   onActivePageChange,
 }: {
   templateSlug: string;
@@ -109,8 +205,31 @@ export function EditorCanvas({
   onAddTextItem: (sectionId: string, index: number) => void;
   /** Commits a drag: the item lands at `index` in `toSectionId`. */
   onMoveItem: (itemId: string, toSectionId: string, index: number) => void;
+  /** Insert on a template resume: an already-built note, image or rule. */
+  onAddPlacedItem: (sectionId: string, index: number, item: PlacedItem) => void;
+  /** A flowed image's new width, as a share of the column it sits in. */
+  onResizeImage: (itemId: string, widthPercent: number) => void;
+  /**
+   * An image file to upload and place. The canvas resolves *where* — the page owns
+   * the upload, because it owns the API client and the error banner.
+   */
+  onImageFile: (file: File, at?: Point) => void;
+  /** Blank canvas: places an already-built block, so the caller knows its id. */
+  onAddBlock: (block: FreeformBlock) => void;
+  onMoveBlock: (blockId: string, page: number, position: Millimetres) => void;
+  onResizeBlock: (
+    blockId: string,
+    position: Millimetres,
+    size: { width: number; height: number },
+  ) => void;
+  onRemoveBlock: (blockId: string) => void;
   /** How many sheets the measured layout produced. */
   onPagesChange?: (pageCount: number) => void;
+  /**
+   * How full sheet one is, as a fraction of its usable height. Never called for a
+   * canvas, whose sheets aren't packed and so have no fill to report.
+   */
+  onFillChange?: (fill: number) => void;
   /** Which sheet currently fills most of the viewport. */
   onActivePageChange?: (pageIndex: number) => void;
 }) {
@@ -120,19 +239,71 @@ export function EditorCanvas({
   const [hoveredItem, setHoveredItem] = useState<{ id: string; anchor: Anchor } | null>(null);
   const hoverClearRef = useRef<number | null>(null);
   const [layout, setLayout] = useState<PageLayout[] | null>(null);
+  /**
+   * How full sheet one is, or null on a canvas and before the first measurement.
+   *
+   * Kept beside `layout` because it comes from the same measured flow, and reported
+   * outward the same way the sheet count is: the editor needs it to decide whether
+   * to offer the fill, and nothing outside this component can measure it.
+   */
+  const [fill, setFill] = useState<number | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
   // The pointer-up handler is subscribed once per drag, so it can't close over
   // the target state; this is what it reads to commit the move.
   const dropTargetRef = useRef<DropTarget | null>(null);
   dropTargetRef.current = dropTarget;
+  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+  /**
+   * The placed item under selection on a template resume, and its measured box.
+   *
+   * An image holds no text, so clicking one can't be answered with a caret the way
+   * every other click on the sheet is — selecting it is the answer instead, and what
+   * puts its resize handle on screen. Kept separate from `hoveredItem` deliberately:
+   * a frame that came and went with the pointer would disappear on the way to its
+   * own handle.
+   */
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [itemAnchor, setItemAnchor] = useState<Anchor | null>(null);
+  /** Whether a file is being dragged over the canvas, for the drop hint. */
+  const [dropping, setDropping] = useState(false);
+  /** A block or item just created, to be focused once React has drawn it. */
+  const pendingFocusRef = useRef<string | null>(null);
+  /**
+   * A block just created that has to be scrolled to, rather than typed in.
+   *
+   * Separate from `pendingFocusRef` because a starter section is selected without
+   * taking the caret — everything in it is placeholder text meant to be clicked
+   * into, and a caret parked at the top of the heading would put the first keystroke
+   * in the one line the user is least likely to want to change.
+   */
+  const pendingRevealRef = useRef<string | null>(null);
+  /**
+   * The entry the caret was last in, so an Insert lands where the user was working.
+   *
+   * A ref rather than state, and read rather than watched: opening the Insert menu
+   * moves focus to its button, so by the time anything is chosen `document.activeElement`
+   * is the trigger and no longer says anything about the document.
+   */
+  const lastEntryRef = useRef<InsertionPoint | null>(null);
+
+  /**
+   * Which kind of document this is.
+   *
+   * The blank canvas has no sections to measure or pack — its blocks carry their
+   * own coordinates — so the whole pagination pass is skipped and the sheet count
+   * comes from the blocks instead. Read through `baseTemplateSlug` to agree with
+   * the renderer, which branches on exactly the same value.
+   */
+  const freeform = isBlankTemplate(baseTemplateSlug(templateSlug));
+  const blocks = useMemo(() => content.freeformBlocks ?? [], [content.freeformBlocks]);
 
   const page = PAGE_DIMENSIONS[theme.pageSize];
   const pageWidthPx = page.width * MM_TO_PX;
   const pageHeightPx = page.height * MM_TO_PX;
   // Reserve height for every page plus the on-screen gaps between them; the
   // transform doesn't affect flow, so the wrapper must account for the stack.
-  const pages = layout?.length ?? 1;
+  const pages = freeform ? freeformPageCount(blocks) : (layout?.length ?? 1);
   const stackHeightPx = pages * pageHeightPx + (pages - 1) * PAGE_GAP_MM * MM_TO_PX;
 
   // --- Pagination ---
@@ -143,10 +314,14 @@ export function EditorCanvas({
   const forcedBreaks = useMemo(() => forcedBreakIds(content), [content]);
 
   const remeasure = useCallback(() => {
-    const { blocks, usableHeight, headerHeight } = measureFlow(measureArgs(MEASURE_ROOT));
-    if (usableHeight <= 0) return;
-    setLayout(packBlocks({ blocks, usableHeight, headerHeight, forcedBreaks }));
-  }, [forcedBreaks]);
+    // Nothing to measure on a canvas: a freeform block's own coordinates already
+    // say which sheet it is on and where.
+    if (freeform) return;
+    const flow = measureFlow(measureArgs(MEASURE_ROOT));
+    if (flow.usableHeight <= 0) return;
+    setLayout(packBlocks({ ...flow, forcedBreaks }));
+    setFill(fillRatio(flow));
+  }, [forcedBreaks, freeform]);
 
   // Layout effect, not effect: this runs before paint, so the sheets are never
   // shown with a stale break and then reflowed in front of the user.
@@ -173,6 +348,12 @@ export function EditorCanvas({
     onPagesChange?.(pages);
   }, [onPagesChange, pages]);
 
+  // Same reason, same shape: how full the first sheet is belongs to the measured
+  // layout, and the banner that offers to fill it lives outside this component.
+  useEffect(() => {
+    if (fill !== null) onFillChange?.(fill);
+  }, [onFillChange, fill]);
+
   // --- Navigation ---
 
   /** The nth sheet of the *visible* document; never the mirror's. */
@@ -181,19 +362,46 @@ export function EditorCanvas({
     [],
   );
 
-  useEffect(() => {
-    if (!handleRef) return;
-    handleRef.current = {
-      scrollToPage: (index) => sheetAt(index)?.scrollIntoView({ behavior: "smooth", block: "start" }),
-      scrollToSection: (sectionId) =>
-        pageRef.current
-          ?.querySelector(`[data-section-id="${sectionId}"]`)
-          ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+  /**
+   * The sheet the user is looking at: the last one whose top edge is above the
+   * middle of the viewport.
+   *
+   * The same rule the page rail highlights by, so an insert with nothing pointed at
+   * lands on the sheet the toolbar is calling the current one.
+   */
+  const visibleSheet = useCallback((): HTMLElement | null => {
+    const container = scrollRef.current;
+    const sheets = pageRef.current?.querySelectorAll<HTMLElement>(".rd-page");
+    if (!container || !sheets?.length) return null;
+
+    const middle = container.getBoundingClientRect().top + container.clientHeight / 2;
+    let visible = sheets[0]!;
+    sheets.forEach((sheet) => {
+      if (sheet.getBoundingClientRect().top <= middle) visible = sheet;
+    });
+    return visible;
+  }, []);
+
+  /**
+   * Where on a sheet to put something nobody pointed at: the middle of the part of
+   * it that is actually on screen.
+   *
+   * Not the middle of the sheet — on a page scrolled halfway past, that is off the
+   * top of the view, and a block inserted there would appear to have gone nowhere.
+   */
+  const sheetPoint = useCallback((sheet: HTMLElement): Point => {
+    const box = sheet.getBoundingClientRect();
+    const view = scrollRef.current!.getBoundingClientRect();
+    const top = Math.max(box.top, view.top);
+    const bottom = Math.min(box.bottom, view.bottom);
+
+    return {
+      x: box.left + box.width / 2,
+      // Falls back to the sheet's own middle when none of it is in view, which the
+      // rule above allows for a single sheet scrolled entirely past.
+      y: top < bottom ? (top + bottom) / 2 : box.top + box.height / 2,
     };
-    return () => {
-      handleRef.current = null;
-    };
-  }, [handleRef, sheetAt]);
+  }, []);
 
   // Which sheet the rail should highlight: whichever one covers the middle of
   // the viewport, so a sheet only becomes "current" once it genuinely dominates
@@ -247,6 +455,319 @@ export function EditorCanvas({
   }, [cancelHoverClear]);
 
   useEffect(() => cancelHoverClear, [cancelHoverClear]);
+
+  // --- The blank canvas ---
+
+  /**
+   * Puts the caret in whatever text a block or item holds. False when it has none.
+   *
+   * One function for both kinds of document, because both ways of conjuring
+   * something to type in want the same thing next: a canvas block, and a text item
+   * inserted into a template's flow. They are found by different attributes — the
+   * blank renderer stamps `data-free-block`, the flowed one `data-item-id` — but an
+   * id is unique across the document either way, so asking for both is safe.
+   */
+  const focusEditable = useCallback((id: string) => {
+    const field = pageRef.current?.querySelector<HTMLElement>(
+      `[data-free-block="${id}"] ${FIELD_SELECTOR}, [data-item-id="${id}"] ${FIELD_SELECTOR}`,
+    );
+    field?.focus();
+    return Boolean(field);
+  }, []);
+
+  // Something created by a click or an insert can only be focused once React has
+  // drawn it, which is a render later than the dispatch that made it. Keyed on the
+  // whole content, not just the blocks, so an inserted text *item* is caught too.
+  useLayoutEffect(() => {
+    const id = pendingFocusRef.current;
+    if (id && focusEditable(id)) pendingFocusRef.current = null;
+
+    // A stacked insert can land on a sheet the user isn't looking at, or below the
+    // fold of the one they are, so it says where it went.
+    const reveal = pendingRevealRef.current;
+    const element = reveal
+      ? pageRef.current?.querySelector(`[data-free-block="${reveal}"]`)
+      : null;
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "center" });
+      pendingRevealRef.current = null;
+    }
+  }, [content, focusEditable]);
+
+  /**
+   * The caret waiting in the name on a canvas nobody has typed in yet.
+   *
+   * The heading itself is placed when the resume is created, not here — but landing
+   * with it focused is the point of pre-placing it, and it is what turns "a blank
+   * page and a cursor" into somewhere to start. Only while the whole document is
+   * still empty: stealing the caret every time a finished canvas is reopened would
+   * put it somewhere the user didn't ask for.
+   */
+  const openedRef = useRef(false);
+  useLayoutEffect(() => {
+    if (openedRef.current || !freeform || blocks.length === 0) return;
+    openedRef.current = true;
+
+    const first = blocks[0];
+    if (first?.type !== "heading" || blocks.some((block) => block.content !== "")) return;
+    setSelectedBlockId(first.id);
+    focusEditable(first.id);
+  }, [blocks, focusEditable, freeform]);
+
+  /**
+   * A click on bare paper, as a text block to type in.
+   *
+   * This is the blank canvas's whole premise: the page is empty, and pointing at
+   * part of it is how you say you want words there. No menu and no drag — Word and
+   * Canva both treat a click on nothing as "start typing here", and asking which
+   * kind of block first would put a dialog between the user and their first word.
+   */
+  const createTextBlockAt = useCallback(
+    (client: Point, sheet: HTMLElement) => {
+      const rect = sheet.getBoundingClientRect();
+      const block = createFreeformBlock({
+        type: "text",
+        page: Number(sheet.dataset.pageIndex) || 0,
+        ...newTextBlockBox(
+          {
+            x: mmFromPx(client.x - rect.left, zoom),
+            y: mmFromPx(client.y - rect.top, zoom),
+          },
+          page,
+        ),
+      });
+
+      pendingFocusRef.current = block.id;
+      setSelectedBlockId(block.id);
+      onAddBlock(block);
+    },
+    [onAddBlock, page, zoom],
+  );
+
+  // --- Insert ---
+
+  /**
+   * Which slot in which section an insert lands in, or null when there is nowhere
+   * to put it — a template resume whose sections have all been deleted.
+   *
+   * A point, meaning a dropped file, is answered by what is under it: the section it
+   * landed on, after the entry it landed on. Without one the answer is where the
+   * user was last working — the caret's own entry when the section still matches,
+   * and otherwise the end of whichever section is in view.
+   */
+  const insertionPoint = useCallback(
+    (at?: Point): InsertionPoint | null => {
+      const root = pageRef.current;
+      const rendered = root ? Array.from(root.querySelectorAll<HTMLElement>("[data-section-id]")) : [];
+      if (!root || rendered.length === 0) return null;
+
+      const itemCount = (sectionId: string) =>
+        content.sections.find((section) => section.id === sectionId)?.items.length ?? 0;
+
+      if (at) {
+        const element = document.elementFromPoint(at.x, at.y) as HTMLElement | null;
+        // Containment check rather than trusting the hit test: a drop on the grey
+        // canvas either side of the page still lands on this component.
+        const sectionEl = root.contains(element)
+          ? element!.closest<HTMLElement>("[data-section-id]")
+          : null;
+
+        if (sectionEl?.dataset.sectionId) {
+          const sectionId = sectionEl.dataset.sectionId;
+          const entryEl = element!.closest<HTMLElement>(`[${BLOCK_ATTR.item}]`);
+          const index = Number(entryEl?.dataset.blockItem);
+
+          return {
+            sectionId,
+            // After the entry it was dropped on; at the end when it missed them
+            // all, which is what the space below a section's last line means.
+            index:
+              entryEl?.dataset.blockSection === sectionId && Number.isInteger(index)
+                ? index + 1
+                : itemCount(sectionId),
+          };
+        }
+      }
+
+      const middle =
+        scrollRef.current!.getBoundingClientRect().top + scrollRef.current!.clientHeight / 2;
+      let inView = rendered[0]!;
+      rendered.forEach((sectionEl) => {
+        if (sectionEl.getBoundingClientRect().top <= middle) inView = sectionEl;
+      });
+
+      // The focused section wins, but only while it is still on the page: a section
+      // deleted from the panel leaves its id behind in `focusedSectionId`.
+      const sectionId =
+        focusedSectionId && rendered.some((el) => el.dataset.sectionId === focusedSectionId)
+          ? focusedSectionId
+          : inView.dataset.sectionId!;
+
+      const entry = lastEntryRef.current;
+      return entry?.sectionId === sectionId ? entry : { sectionId, index: itemCount(sectionId) };
+    },
+    [content.sections, focusedSectionId],
+  );
+
+  /**
+   * Adds one image, rule or text box, and says what it added.
+   *
+   * The two documents place things differently enough that this is really two
+   * functions behind one name, and that is the point: the toolbar asks for an image
+   * without knowing whether it is about to become a block on a canvas or an item in
+   * a section's flow. Only the canvas knows which document it is showing, where the
+   * caret was, and which sheet is in view — so only the canvas can answer "where".
+   *
+   * A text box takes the caret straight away; there is nothing else to do with one.
+   * An image or a rule takes the selection instead, which is what puts an image's
+   * resize handle under the pointer without a second click.
+   */
+  const insert = useCallback(
+    (kind: InsertKind, at?: Point): Inserted | null => {
+      if (freeform) {
+        const sheet = (at ? sheetFromPoint(pageRef.current, at) : null) ?? visibleSheet();
+        if (!sheet) return null;
+
+        const point = at ?? sheetPoint(sheet);
+        const rect = sheet.getBoundingClientRect();
+        const block = createFreeformBlock({
+          type: kind,
+          page: Number(sheet.dataset.pageIndex) || 0,
+          ...centredBox(
+            { x: mmFromPx(point.x - rect.left, zoom), y: mmFromPx(point.y - rect.top, zoom) },
+            INSERTED_BLOCK_MM[kind],
+            page,
+          ),
+        });
+
+        if (kind === "text") pendingFocusRef.current = block.id;
+        setSelectedBlockId(block.id);
+        onAddBlock(block);
+        return { kind: "block", blockId: block.id };
+      }
+
+      const slot = insertionPoint(at);
+      if (!slot) return null;
+
+      const item =
+        kind === "image"
+          ? createImageItem()
+          : kind === "divider"
+            ? createDividerItem()
+            : createTextItem();
+
+      if (kind === "text") pendingFocusRef.current = item.id;
+      else setSelectedItemId(item.id);
+      onFocusSection(slot.sectionId);
+      onAddPlacedItem(slot.sectionId, slot.index, item);
+      return { kind: "item", sectionId: slot.sectionId, itemId: item.id };
+    },
+    [
+      freeform,
+      insertionPoint,
+      onAddBlock,
+      onAddPlacedItem,
+      onFocusSection,
+      page,
+      sheetPoint,
+      visibleSheet,
+      zoom,
+    ],
+  );
+
+  /**
+   * The left edge the blocks on a sheet line up on, and the millimetre line the next
+   * one down should start at.
+   *
+   * Measured from the rendered page rather than from stored geometry: a text block's
+   * height is whatever its words came to, and many blocks carry no explicit size at
+   * all. A sheet nobody has put anything on — including one that doesn't exist yet —
+   * answers with the standing inset, which is where the pre-placed name heading sits.
+   */
+  const sheetStack = useCallback(
+    (pageIndex: number): Millimetres => {
+      const sheet = sheetAt(pageIndex);
+      const rect = sheet?.getBoundingClientRect();
+      const placed = sheet?.querySelectorAll<HTMLElement>(BLOCK_SELECTOR);
+      if (!rect || !placed?.length) return { x: STACK_INSET_MM, y: STACK_INSET_MM };
+
+      let x = Infinity;
+      let bottom = -Infinity;
+      placed.forEach((element) => {
+        const box = element.getBoundingClientRect();
+        x = Math.min(x, mmFromPx(box.left - rect.left, zoom));
+        bottom = Math.max(bottom, mmFromPx(box.bottom - rect.top, zoom));
+      });
+
+      return { x, y: bottom + STACK_GAP_MM };
+    },
+    [sheetAt, zoom],
+  );
+
+  /**
+   * A starter section, on the first sheet from here down that has room for it.
+   *
+   * Stacked rather than placed where the pointer is, because that is the whole point
+   * of the picker: a section is a column of text that belongs under the last one, and
+   * asking the user to position it would be asking them to do the thing they came
+   * here to avoid. It runs on to the next sheet when this one is full — and takes the
+   * foot of the last sheet regardless if the document is somehow full to the cap,
+   * since an overlap they can drag apart beats a click that did nothing.
+   */
+  const insertSection = useCallback(
+    (kind: SectionStarter): Inserted | null => {
+      if (!freeform) return null;
+
+      const size = sectionStarterSize(kind);
+      const from = Number(visibleSheet()?.dataset.pageIndex) || 0;
+
+      let target = from;
+      let position: Millimetres | null = null;
+      for (let index = from; index < MAX_FREEFORM_PAGES && !position; index++) {
+        target = index;
+        position = stackedPosition(sheetStack(index), size, page);
+      }
+
+      const block = createSectionStarterBlock(kind, {
+        page: target,
+        position: position ?? clampPosition(sheetStack(target), size, page),
+      });
+
+      setSelectedBlockId(block.id);
+      pendingRevealRef.current = block.id;
+      onAddBlock(block);
+      return { kind: "block", blockId: block.id };
+    },
+    [freeform, onAddBlock, page, sheetStack, visibleSheet],
+  );
+
+  useEffect(() => {
+    if (!handleRef) return;
+    handleRef.current = {
+      scrollToPage: (index) => sheetAt(index)?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      scrollToSection: (sectionId) =>
+        pageRef.current
+          ?.querySelector(`[data-section-id="${sectionId}"]`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+      insert,
+      insertSection,
+      // A canvas paginates nothing — its sheets exist because its blocks say so,
+      // and no amount of tighter leading moves a block off page two.
+      fitTheme: (targetPages, templateDefault) =>
+        freeform
+          ? null
+          : searchFit({ measureRoot: MEASURE_ROOT, theme, templateDefault, forcedBreaks, targetPages }),
+      // Likewise: leading cannot fill a canvas, whose emptiness is a property of
+      // where its blocks were put.
+      fillTheme: (targetPages, templateDefault) =>
+        freeform
+          ? null
+          : searchFill({ measureRoot: MEASURE_ROOT, theme, templateDefault, forcedBreaks, targetPages }),
+    };
+    return () => {
+      handleRef.current = null;
+    };
+  }, [forcedBreaks, freeform, handleRef, insert, insertSection, sheetAt, theme]);
 
   // --- Drag and drop ---
 
@@ -360,12 +881,37 @@ export function EditorCanvas({
     setSectionAnchor(element ? toLocal(element.getBoundingClientRect()) : null);
   }, [focusedSectionId, content, layout, zoom, theme, toLocal]);
 
+  /**
+   * The selected image's box, on the same terms.
+   *
+   * A pass of its own rather than a branch of the one above, because an image can be
+   * selected with no section focused, and because the two go stale on different
+   * things — this one also has to survive the image being resized from its handle.
+   *
+   * Measured on the picture rather than its wrapper: the wrapper is the full width of
+   * the column whatever the image does, and a frame drawn around that would sit far
+   * out to the right of a small photo.
+   */
+  useLayoutEffect(() => {
+    if (!selectedItemId || !scrollRef.current) {
+      setItemAnchor(null);
+      return;
+    }
+
+    const element = pageRef.current?.querySelector(
+      `.rd-item-image[data-item-id="${selectedItemId}"] > *`,
+    );
+    setItemAnchor(element ? toLocal(element.getBoundingClientRect()) : null);
+  }, [selectedItemId, content, layout, zoom, theme, toLocal]);
+
   // Clicking away from the page clears the selection.
   useEffect(() => {
     function onPointerDown(event: PointerEvent) {
       const target = event.target as HTMLElement;
       if (target.closest("[data-canvas-overlay]") || pageRef.current?.contains(target)) return;
       onFocusSection(null);
+      setSelectedBlockId(null);
+      setSelectedItemId(null);
     }
 
     document.addEventListener("pointerdown", onPointerDown);
@@ -376,6 +922,16 @@ export function EditorCanvas({
   // Summary sections hold at most one item, so offering "add entry" would only
   // produce a value the schema rejects.
   const canAddItem = focusedSection !== null && focusedSection.type !== "summary";
+
+  /** The selected item, when it is an image — the only kind with a frame to draw. */
+  const selectedImage = useMemo(() => {
+    if (!selectedItemId) return null;
+    for (const section of content.sections) {
+      const item = section.items.find((candidate) => candidate.id === selectedItemId);
+      if (item) return isImageItem(item) ? item : null;
+    }
+    return null;
+  }, [content.sections, selectedItemId]);
 
   function handleCanvasPointerOver(event: React.PointerEvent) {
     // A drag owns the overlay until it ends; letting hover move it would take
@@ -394,8 +950,106 @@ export function EditorCanvas({
   }
 
   function handleCanvasFocusIn(event: React.FocusEvent) {
-    const sectionEl = (event.target as HTMLElement).closest<HTMLElement>("[data-section-id]");
+    const target = event.target as HTMLElement;
+    // On a canvas, focus is the selection: tabbing or clicking into a block's text
+    // is what puts the frame and its handles around it.
+    const blockEl = target.closest<HTMLElement>(BLOCK_SELECTOR);
+    if (blockEl?.dataset.freeBlock) setSelectedBlockId(blockEl.dataset.freeBlock);
+
+    // Where an Insert should land, remembered now rather than read later: opening
+    // the menu moves focus to its button, and by then the document has forgotten.
+    // The slot is *after* this entry, which is where "insert here" means on the line
+    // you are typing on.
+    const entryEl = target.closest<HTMLElement>(`[${BLOCK_ATTR.item}]`);
+    const index = Number(entryEl?.dataset.blockItem);
+    lastEntryRef.current =
+      entryEl?.dataset.blockSection && Number.isInteger(index)
+        ? { sectionId: entryEl.dataset.blockSection, index: index + 1 }
+        : null;
+
+    const sectionEl = target.closest<HTMLElement>("[data-section-id]");
     if (sectionEl) onFocusSection(sectionEl.dataset.sectionId!);
+  }
+
+  /**
+   * Click-to-edit anywhere on the sheet.
+   *
+   * A resume is mostly whitespace, and every part of it should be a way into the
+   * text: the space under an entry's last bullet, the room to the right of a short
+   * line, the band between two sections. A click that misses the words themselves
+   * used to land on a plain `<div>` and do nothing, leaving the user to hunt for a
+   * character to aim at.
+   *
+   * Two-column templates need the sidebar and the main column treated as separate
+   * flows, or a click in the dead space below a short main column would land in
+   * whichever sidebar entry happened to be level with it — the caret jumping the
+   * page to a section the user never pointed at. `columnAtPoint` is what keeps the
+   * search on the side of the page that was clicked.
+   *
+   * The blank canvas answers the same click differently. There is no nearest text
+   * to fall back to and no flow to join, so bare paper becomes a new block instead:
+   * on a canvas, the empty space *is* the document.
+   */
+  function handleCanvasPointerDown(event: React.PointerEvent) {
+    const target = event.target as HTMLElement;
+    // Primary button only, and never while extending a selection.
+    if (event.button !== 0 || event.shiftKey) return;
+
+    const sheet = target.closest<HTMLElement>(".rd-page");
+    if (!sheet) return;
+
+    if (freeform) {
+      const blockEl = target.closest<HTMLElement>(BLOCK_SELECTOR);
+      // Inside a block: selecting it is all this needs to do. If it holds text the
+      // browser is about to place the caret between the two characters clicked,
+      // which is better than anything done by hand here.
+      if (blockEl?.dataset.freeBlock) {
+        setSelectedBlockId(blockEl.dataset.freeBlock);
+        return;
+      }
+      event.preventDefault();
+      createTextBlockAt({ x: event.clientX, y: event.clientY }, sheet);
+      return;
+    }
+
+    // A click that already found text: the browser places the caret between the
+    // exact two characters clicked, which is better than any box arithmetic.
+    if (target.closest(FIELD_SELECTOR)) {
+      setSelectedItemId(null);
+      return;
+    }
+
+    /*
+      An image or a rule holds no text, so a click on one cannot be answered with a
+      caret the way every other click on the sheet is — selecting it is the answer
+      instead, and for an image that is what puts its resize handle on screen.
+
+      Without this the click would fall through to the nearest-field search below and
+      fling the caret into whatever text happened to be closest, which for a photo at
+      the top of a sidebar is a heading on the other side of the page.
+    */
+    const placedEl = target.closest<HTMLElement>(".rd-item-image, .rd-item-divider");
+    if (placedEl?.dataset.itemId) {
+      // Keeps the press from starting a drag-select through the picture.
+      event.preventDefault();
+      setSelectedItemId(placedEl.dataset.itemId);
+      const sectionEl = placedEl.closest<HTMLElement>("[data-section-id]");
+      if (sectionEl?.dataset.sectionId) onFocusSection(sectionEl.dataset.sectionId);
+      return;
+    }
+    // Anywhere else on the sheet: the frame goes away, like clicking off a picture
+    // in any editor.
+    setSelectedItemId(null);
+
+    const point: Point = { x: event.clientX, y: event.clientY };
+    const column = columnAtPoint(boxesIn(sheet, COLUMN_SELECTOR), point);
+    const field = nearestBox(boxesIn(column?.el ?? sheet, FIELD_SELECTOR), point);
+    if (!field) return;
+
+    // Keeps the browser from collapsing the selection we are about to make, and
+    // from starting a drag-select out of a node that holds no text.
+    event.preventDefault();
+    placeCaret(field.el, caretSide(field.box, point));
   }
 
   const hoveredItemSection = hoveredItem
@@ -404,22 +1058,82 @@ export function EditorCanvas({
   const hoveredItemIndex = hoveredItemSection
     ? hoveredItemSection.items.findIndex((item) => item.id === hoveredItem!.id)
     : -1;
-  // A free text block has no bullets and no entry fields, so the actions that
-  // act on those are hidden for it rather than left to no-op.
-  const hoveredItemIsText =
-    hoveredItemIndex >= 0 && isTextItem(hoveredItemSection!.items[hoveredItemIndex]);
+  const hoveredEntry = hoveredItemIndex >= 0 ? hoveredItemSection!.items[hoveredItemIndex] : null;
+  // A note, an image or a rule the user placed is not one of the section's entries:
+  // none of them has bullets or fields, so the actions that act on those are hidden
+  // rather than left to no-op. Every placed kind, not just text — an image inside an
+  // experience section was still being offered "Add bullet".
+  const hoveredItemPlaced = isPlacedItem(hoveredEntry);
   const hoveredItemSupportsBullets =
     hoveredItemSection !== null &&
     hoveredItemSection !== undefined &&
-    !hoveredItemIsText &&
+    !hoveredItemPlaced &&
     hoveredItemSection.type !== "summary" &&
     hoveredItemSection.type !== "skills" &&
     hoveredItemSection.type !== "certifications";
+  // Naming what will actually go, so the button under the pointer says "Delete
+  // image" over a photo rather than the "Delete entry" it isn't.
+  const hoveredDeleteLabel = isImageItem(hoveredEntry)
+    ? "Delete image"
+    : isDividerItem(hoveredEntry)
+      ? "Delete divider"
+      : isTextItem(hoveredEntry)
+        ? "Delete text"
+        : "Delete entry";
+
+  /**
+   * Whether a drag carries files.
+   *
+   * Checked on every one of these handlers, because text dragged from one field to
+   * another inside the document raises the same events, and claiming those would
+   * break moving a phrase by dragging it.
+   */
+  function hasFiles(event: React.DragEvent) {
+    return Array.from(event.dataTransfer.types).includes("Files");
+  }
+
+  function handleFileDragOver(event: React.DragEvent) {
+    if (!hasFiles(event)) return;
+    // Both lines are load-bearing: without `preventDefault` the browser treats the
+    // drop as a navigation and replaces the editor with the image file.
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setDropping(true);
+  }
+
+  function handleFileDragLeave(event: React.DragEvent) {
+    // Fires on every internal boundary the pointer crosses, so the related target is
+    // what separates leaving the canvas from moving around inside it. A drag out of
+    // the window has no related target at all, which this treats as a leave.
+    const next = event.relatedTarget as Node | null;
+    if (next && event.currentTarget.contains(next)) return;
+    setDropping(false);
+  }
+
+  function handleFileDrop(event: React.DragEvent) {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    setDropping(false);
+
+    // The first file whatever it is, rather than the first *image*: dropping a PDF
+    // here should be told why nothing happened, and the page already owns that
+    // message. Silently ignoring it would read as the drop having missed.
+    const file = event.dataTransfer.files[0];
+    if (file) onImageFile(file, { x: event.clientX, y: event.clientY });
+  }
 
   return (
     <div
       ref={scrollRef}
-      className="scrollbar-on-dark relative min-h-0 flex-1 overflow-auto bg-canvas"
+      onDragEnter={handleFileDragOver}
+      onDragOver={handleFileDragOver}
+      onDragLeave={handleFileDragLeave}
+      onDrop={handleFileDrop}
+      // The ring marks the drop zone, and sits on the scrolling element itself so it
+      // stays around the view rather than around the whole page stack.
+      className={`scrollbar-on-dark relative min-h-0 flex-1 overflow-auto bg-canvas transition-shadow duration-150 ${
+        dropping ? "ring-2 ring-inset ring-accent" : ""
+      }`}
     >
       {/* Faint grid, so the page reads as a sheet resting on a surface. */}
       <div
@@ -445,6 +1159,7 @@ export function EditorCanvas({
             ref={pageRef}
             onPointerOver={handleCanvasPointerOver}
             onPointerLeave={scheduleHoverClear}
+            onPointerDown={handleCanvasPointerDown}
             onFocus={handleCanvasFocusIn}
             style={{
               width: pageWidthPx,
@@ -485,12 +1200,45 @@ export function EditorCanvas({
         rects inside are still true.
       */}
       <div aria-hidden className="pointer-events-none absolute left-0 top-0 h-0 w-0 overflow-hidden">
-        <div data-measure-root className="rd-measure-host" style={{ width: pageWidthPx }}>
-          <ResumeDocument templateSlug={templateSlug} content={measureContent} theme={theme} />
-        </div>
+        {!freeform && (
+          <div data-measure-root className="rd-measure-host" style={{ width: pageWidthPx }}>
+            <ResumeDocument templateSlug={templateSlug} content={measureContent} theme={theme} />
+          </div>
+        )}
       </div>
 
       {/* Overlay: never inside .rd-page, so it can't reach the PDF. */}
+      {freeform && (
+        <FreeformLayer
+          blocks={blocks}
+          selectedId={selectedBlockId}
+          page={page}
+          pageCount={pages}
+          zoom={zoom}
+          hostRef={pageRef}
+          toLocal={toLocal}
+          onMove={onMoveBlock}
+          onResize={onResizeBlock}
+          onRemove={(blockId) => {
+            onRemoveBlock(blockId);
+            setSelectedBlockId(null);
+          }}
+        />
+      )}
+
+      {/* The flowed equivalent, for an image sitting in a template's columns. */}
+      {selectedImage && itemAnchor && (
+        <ImageFrame
+          key={selectedImage.id}
+          itemId={selectedImage.id}
+          widthPercent={selectedImage.widthPercent ?? 40}
+          anchor={itemAnchor}
+          hostRef={pageRef}
+          toLocal={toLocal}
+          onResize={onResizeImage}
+        />
+      )}
+
       <AnimatePresence>
         {sectionAnchor && focusedSection && (
           <motion.div
@@ -593,7 +1341,7 @@ export function EditorCanvas({
               <TextIcon />
             </ItemAction>
             <ItemAction
-              label={hoveredItemIsText ? "Delete text" : "Delete entry"}
+              label={hoveredDeleteLabel}
               danger
               onClick={() => {
                 onRemoveItem(hoveredItemSection.id, hoveredItem.id);
@@ -625,6 +1373,47 @@ export function EditorCanvas({
       )}
     </div>
   );
+}
+
+/**
+ * Every element matching `selector` inside `root`, paired with its client rect.
+ *
+ * Zero-size matches are dropped: a field belonging to a section this sheet doesn't
+ * show renders as an unstyled empty node, and a caret sent into one would be
+ * invisible.
+ */
+function boxesIn(root: HTMLElement, selector: string): { el: HTMLElement; box: DOMRect }[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(selector))
+    .map((el) => ({ el, box: el.getBoundingClientRect() }))
+    .filter(({ box }) => box.width > 0 || box.height > 0);
+}
+
+/**
+ * The sheet under a client point, when the point is over one of *this* document's.
+ *
+ * The containment check is what rules out a drop onto the grey canvas either side of
+ * the page, which still lands on the component but not on any sheet.
+ */
+function sheetFromPoint(root: HTMLElement | null, at: Point): HTMLElement | null {
+  const element = document.elementFromPoint(at.x, at.y) as HTMLElement | null;
+  const sheet = element?.closest<HTMLElement>(".rd-page") ?? null;
+  return sheet && root?.contains(sheet) ? sheet : null;
+}
+
+/** Focuses a field and collapses the caret to one end of its text. */
+function placeCaret(el: HTMLElement, side: "start" | "end"): void {
+  el.focus();
+
+  const selection = window.getSelection();
+  if (!selection) return;
+
+  const range = document.createRange();
+  // Contents rather than offsets: a rich field holds a tree of inline tags, and
+  // this lands inside it correctly however deeply the last run is nested.
+  range.selectNodeContents(el);
+  range.collapse(side === "start");
+  selection.removeAllRanges();
+  selection.addRange(range);
 }
 
 function OverlayButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {

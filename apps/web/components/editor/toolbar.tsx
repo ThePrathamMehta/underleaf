@@ -1,10 +1,11 @@
 "use client";
 
-import { FONT_CATALOG, type PageSize, type Theme } from "@repo/types";
+import { FONT_CATALOG, SECTION_STARTERS, sectionStarterLabel, type PageSize, type SectionStarter, type Theme } from "@repo/types";
 import { useMemo, useState } from "react";
 import { Button } from "../button";
 import { Logo } from "../logo";
 import type { SaveStatus } from "../../lib/use-autosave";
+import type { InsertKind } from "./canvas";
 import { FieldLabel, IconButton, Popover, Segmented, Slider, SwatchRow, ToolbarDivider } from "./controls";
 import { UserMenu } from "./user-menu";
 import { ThemeToggle } from "../theme-toggle";
@@ -56,6 +57,18 @@ const PAGE_SIZE_OPTIONS = [
   { value: "a4" as PageSize, label: "A4" },
 ];
 
+/**
+ * The Insert menu, in the order a resume tends to want them.
+ *
+ * An image first because it is the one people come looking for — a headshot, a
+ * logo, a QR code — and the only one that opens a file picker.
+ */
+const INSERT_OPTIONS: { kind: InsertKind; label: string; icon: React.ReactNode }[] = [
+  { kind: "image", label: "Image", icon: <ImageIcon /> },
+  { kind: "divider", label: "Divider", icon: <DividerIcon /> },
+  { kind: "text", label: "Text box", icon: <TextBoxIcon /> },
+];
+
 export function EditorToolbar({
   title,
   theme,
@@ -78,6 +91,9 @@ export function EditorToolbar({
   onExport,
   onBack,
   onAddPage,
+  canInsert,
+  onInsert,
+  onInsertSection,
   onTogglePanel,
   onCoverLetter,
 }: {
@@ -102,6 +118,14 @@ export function EditorToolbar({
   onExport: () => void;
   onBack: () => void;
   onAddPage: () => void;
+  /** False when the document has nowhere to put anything — no sections at all. */
+  canInsert: boolean;
+  onInsert: (kind: InsertKind) => void;
+  /**
+   * Present only on a blank canvas, which is the one document with no outline panel
+   * to add sections from. Absent is what hides the control.
+   */
+  onInsertSection?: (kind: SectionStarter) => void;
   onTogglePanel: (panel: EditorPanel) => void;
   onCoverLetter: () => void;
 }) {
@@ -349,6 +373,110 @@ export function EditorToolbar({
         />
 
         <ToolbarDivider />
+
+        {/*
+          Insert Section — the canvas's answer to the outline panel's "Add section".
+
+          Only a blank resume gets it: a template resume already has the panel, and
+          there a section is a real `Section` the template lays out. Here it is a
+          starter block — a heading and one worked example — which is the closest a
+          canvas can come to structure without imposing any.
+        */}
+        {onInsertSection && (
+          <Popover
+            width={210}
+            trigger={({ open, toggle }) => (
+              <TriggerButton open={open} onClick={toggle}>
+                <SectionIcon />
+                <span>Section</span>
+              </TriggerButton>
+            )}
+          >
+            {(close) => (
+              <div className="space-y-0.5">
+                <div className="px-1 pb-2">
+                  <FieldLabel>Insert section</FieldLabel>
+                </div>
+                {SECTION_STARTERS.map((kind) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    onClick={() => {
+                      onInsertSection(kind);
+                      close();
+                    }}
+                    className="w-full rounded-md px-2 py-1.5 text-left text-sm text-ink-muted transition-colors hover:bg-paper-sunken hover:text-ink"
+                  >
+                    {sectionStarterLabel(kind)}
+                  </button>
+                ))}
+                <p className="px-2 pb-0.5 pt-2 text-[0.6875rem] leading-snug text-ink-faint">
+                  Lands under what is already on the page, with example text to type
+                  over.
+                </p>
+              </div>
+            )}
+          </Popover>
+        )}
+
+        {/*
+          Insert — an image, a rule, or a box to type in.
+
+          Three things and no more: this is the escape hatch for what a resume
+          section cannot express, not a general page builder. It sits beside "Add
+          page" because both add to the document rather than restyling it, and it is
+          offered on every resume — the canvas decides whether the result is a block
+          on blank paper or an item in a template's flow.
+        */}
+        {canInsert ? (
+          <Popover
+            width={190}
+            trigger={({ open, toggle }) => (
+              <TriggerButton open={open} onClick={toggle}>
+                <InsertIcon />
+                <span>Insert</span>
+              </TriggerButton>
+            )}
+          >
+            {(close) => (
+              <div className="space-y-0.5">
+                <div className="px-1 pb-2">
+                  <FieldLabel>Insert</FieldLabel>
+                </div>
+                {INSERT_OPTIONS.map((option) => (
+                  <button
+                    key={option.kind}
+                    type="button"
+                    onClick={() => {
+                      onInsert(option.kind);
+                      close();
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-ink-muted transition-colors hover:bg-paper-sunken hover:text-ink"
+                  >
+                    {option.icon}
+                    {option.label}
+                  </button>
+                ))}
+                <p className="px-2 pb-0.5 pt-2 text-[0.6875rem] leading-snug text-ink-faint">
+                  Lands where you were typing. You can also drop an image straight onto
+                  the page.
+                </p>
+              </div>
+            )}
+          </Popover>
+        ) : (
+          // A template resume with every section deleted has nowhere to put anything.
+          // Saying so beats a menu whose every entry silently does nothing.
+          <button
+            type="button"
+            disabled
+            title="Add a section first — there is nowhere to insert into yet."
+            className="inline-flex h-8 shrink-0 cursor-not-allowed items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[0.8125rem] text-ink-faint opacity-60"
+          >
+            <InsertIcon />
+            <span>Insert</span>
+          </button>
+        )}
 
         <button
           type="button"
@@ -632,6 +760,54 @@ function AddPageIcon() {
       <path d="M13 3v5h5" />
       <path d="M18 8v5" />
       <path d="M8.5 19H2.5M5.5 16v6" />
+    </svg>
+  );
+}
+
+/** A plus in a frame: adding something to the page rather than to a list. */
+function InsertIcon() {
+  return (
+    <svg {...svg}>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M12 8v8M8 12h8" />
+    </svg>
+  );
+}
+
+/** A heading with lines under it — what a starter section puts on the page. */
+function SectionIcon() {
+  return (
+    <svg {...svg}>
+      <path d="M4 6h9" strokeWidth={2.5} />
+      <path d="M4 11h16M4 15h16M4 19h11" />
+    </svg>
+  );
+}
+
+function ImageIcon() {
+  return (
+    <svg {...svg} width={14} height={14}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <circle cx="9" cy="9.5" r="1.4" />
+      <path d="m4 17 5-4.5 4 3.5 3-2.5 4 3.5" />
+    </svg>
+  );
+}
+
+function DividerIcon() {
+  return (
+    <svg {...svg} width={14} height={14}>
+      <path d="M4 12h16" />
+      <path d="M7 6h10M7 18h10" opacity={0.4} />
+    </svg>
+  );
+}
+
+function TextBoxIcon() {
+  return (
+    <svg {...svg} width={14} height={14}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M8 10h8M8 14h5" />
     </svg>
   );
 }

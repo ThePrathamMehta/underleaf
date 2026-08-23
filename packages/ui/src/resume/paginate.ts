@@ -344,6 +344,36 @@ export type MeasuredFlow = {
   headerHeight: number;
 };
 
+/**
+ * How full sheet one is, as a fraction of its usable height.
+ *
+ * The companion to `packBlocks`: that answers "how many sheets", this answers "how
+ * much of the first one is used", and the two together are what decide whether a
+ * one-page resume reads as finished or as a stub.
+ *
+ * Each column is summed separately and the taller one wins, because `packBlocks`
+ * packs the columns of a two-column template independently against the full sheet
+ * height. Adding them would report a comfortable sidebar layout as overfull.
+ *
+ * Can exceed 1: this measures the *unpaginated* flow, so a document that needs two
+ * sheets reports the whole of it. Callers that care read `packBlocks(...).length`
+ * for the sheet count and treat this purely as a fullness signal.
+ *
+ * Lives here rather than in `fit-page.ts` because it is the same arithmetic
+ * `packColumn` accumulates with, and three callers need it: the grow-to-fill
+ * search, the editor's fill signal, and the `check:one-page` script.
+ */
+export function fillRatio(flow: MeasuredFlow): number {
+  if (flow.usableHeight <= 0) return 0;
+
+  const used = (column: ColumnId) =>
+    flow.blocks
+      .filter((block) => block.column === column)
+      .reduce((sum, block) => sum + block.height + block.gapBefore, flow.headerHeight);
+
+  return Math.max(used("main"), used("side")) / flow.usableHeight;
+}
+
 /** What `measureFlow` needs to find and identify blocks. See its note on why. */
 export type MeasureArgs = {
   /** CSS selector for the element holding the unpaginated document. */

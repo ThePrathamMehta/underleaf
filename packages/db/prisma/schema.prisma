@@ -271,8 +271,8 @@ model AiProviderConfig {
   /// admin cannot point this at JWT_SECRET and read it back through the config
   /// endpoint. See `resolveSecretRef` in apps/api/src/config.ts.
   apiKeySecretRef String
-  /// `chat` | `ats` | `jdMatch` | `coverLetter` | `all`. `all` is the fallback
-  /// used when no row targets a purpose specifically.
+  /// `chat` | `ats` | `jdMatch` | `coverLetter` | `latexImport` | `all`. `all` is
+  /// the fallback used when no row targets a purpose specifically.
   purpose String
   /// Which membership tier this row serves: `free` | `pro_monthly` |
   /// `job_search_pass`, or null for "any plan" (v5 Section 4).

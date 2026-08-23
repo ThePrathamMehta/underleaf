@@ -4,12 +4,14 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import type { ProfessionDto, TemplateDto } from "@repo/types";
+import { isBlankTemplate } from "@repo/types";
 import { ProfessionIcon } from "@repo/ui/profession-icon";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth-context";
 import { Button } from "../../components/button";
 import { SiteHeader } from "../../components/site-header";
 import { ResumeThumbnail } from "../../components/resume-thumbnail";
+import { LatexImportDialog } from "../../components/latex-import-dialog";
 
 /**
  * `useSearchParams` opts the tree into client-side rendering, so the boundary
@@ -36,7 +38,7 @@ export default function TemplatesPage() {
 
 function TemplatesGallery() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const searchParams = useSearchParams();
 
   const [templates, setTemplates] = useState<TemplateDto[] | null>(null);
@@ -48,6 +50,12 @@ function TemplatesGallery() {
   const [category, setCategory] = useState<string | null>(null);
   const [creatingSlug, setCreatingSlug] = useState<string | null>(null);
   const [preview, setPreview] = useState<TemplateDto | null>(null);
+  /**
+   * Opened by the card below, and by `?import=1` — so the dashboard's New-resume
+   * flow can link straight to a gallery with the paste box already up, rather
+   * than duplicating the dialog on its own route.
+   */
+  const [importing, setImporting] = useState(() => searchParams.get("import") === "1");
 
   // The profession row is an enhancement, not a dependency — if this fails the
   // gallery still works exactly as it did before professions existed.
@@ -85,20 +93,38 @@ function TemplatesGallery() {
     };
   }, [profession]);
 
+  /**
+   * The Blank row, held apart from the rest of the gallery.
+   *
+   * Blank is a seeded template like any other — a resume needs a template id —
+   * but it belongs on the dashed card at the head of the grid rather than in it:
+   * a thumbnail of an empty page tells you nothing, and a "Blank" chip in the
+   * Style row would filter the grid down to a single card.
+   */
+  const blankTemplate = useMemo(
+    () => templates?.find((t) => isBlankTemplate(t.slug)) ?? null,
+    [templates],
+  );
+
+  const listed = useMemo(
+    () => templates?.filter((t) => !isBlankTemplate(t.slug)) ?? [],
+    [templates],
+  );
+
   // Only the categories actually present in the current profession's picks, so
   // the two rows can't combine into an empty grid.
-  const categories = useMemo(() => {
-    if (!templates) return [];
-    return [...new Set(templates.map((t) => t.category))].sort();
-  }, [templates]);
+  const categories = useMemo(
+    () => [...new Set(listed.map((t) => t.category))].sort(),
+    [listed],
+  );
 
   // Category narrows within the profession's list — the AND half of the filter.
   // Kept client-side so it stays instant, and because filtering a ranked list
   // preserves that rank for free.
-  const visible = useMemo(() => {
-    if (!templates) return [];
-    return category ? templates.filter((t) => t.category === category) : templates;
-  }, [templates, category]);
+  const visible = useMemo(
+    () => (category ? listed.filter((t) => t.category === category) : listed),
+    [listed, category],
+  );
 
   // A category that the newly-chosen profession has none of would read as "no
   // results" with no obvious cause; drop it instead.
@@ -140,15 +166,21 @@ function TemplatesGallery() {
     }
   }
 
-  // Start from Blank creates against the default template (Jake's) with an empty
-  // scaffold rather than its sample content. Styling can be changed later via the
-  // editor's template switcher without losing entered content.
+  /**
+   * "Start from blank" creates against the Blank template — a real canvas, with
+   * no sections and no imposed structure, which is what the card has always
+   * promised.
+   *
+   * Falls back to the old behaviour (the default template with an empty section
+   * scaffold) if the Blank row somehow isn't seeded, so the card can never be a
+   * button that does nothing.
+   */
   async function startBlank() {
     if (!user) {
       router.push(`/signup?next=${encodeURIComponent("/templates")}`);
       return;
     }
-    const base = templates?.find((t) => t.slug === "jakes") ?? templates?.[0];
+    const base = blankTemplate ?? listed.find((t) => t.slug === "jakes") ?? listed[0];
     if (!base) return;
 
     setCreatingSlug("__blank__");
@@ -160,6 +192,31 @@ function TemplatesGallery() {
       setCreatingSlug(null);
     }
   }
+
+  const importNext = encodeURIComponent("/templates?import=1");
+
+  /**
+   * Importing needs an account for the same reason using a template does: what
+   * comes out the other end is a resume, and a resume has to belong to someone.
+   * Signup returns here with the dialog already open.
+   */
+  function openImport() {
+    if (!user) {
+      router.push(`/signup?next=${importNext}`);
+      return;
+    }
+    setImporting(true);
+  }
+
+  // The `?import=1` path, which can arrive from anywhere including a bookmark.
+  // Waits for auth to resolve — closing the dialog on a user who is merely still
+  // loading would bounce a signed-in visitor to signup.
+  useEffect(() => {
+    if (importing && !authLoading && !user) {
+      setImporting(false);
+      router.push(`/signup?next=${importNext}`);
+    }
+  }, [importing, authLoading, user, router, importNext]);
 
   return (
     <>
@@ -267,7 +324,41 @@ function TemplatesGallery() {
                   {creatingSlug === "__blank__" ? "Creating…" : "Start from blank"}
                 </span>
                 <span className="mt-1.5 max-w-[24ch] text-sm text-ink-muted text-pretty">
-                  An empty document with just the structure. Style it any way later.
+                  A genuinely empty page. Click anywhere to type, and put things
+                  where you want them.
+                </span>
+              </button>
+            </motion.article>
+          )}
+
+          {/* Beside the blank card, on the same terms: this is the other way to
+              arrive with something rather than nothing. Anyone who already has a
+              resume in Overleaf shouldn't have to retype it into a template. */}
+          {templates !== null && category === null && profession === null && (
+            <motion.article
+              layout
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              whileHover={{ y: -4 }}
+              transition={{ duration: 0.45, delay: 0.04, ease: [0.22, 1, 0.36, 1] }}
+              className="group"
+            >
+              <button
+                type="button"
+                onClick={openImport}
+                disabled={creatingSlug !== null}
+                className="flex w-full flex-col items-center justify-center rounded-lg border border-dashed border-rule-strong bg-paper-raised px-6 text-center transition-all duration-300 hover:border-accent hover:shadow-lift disabled:opacity-60"
+                style={{ aspectRatio: "215.9 / 279.4" }}
+              >
+                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-accent-wash text-accent transition-transform duration-300 group-hover:scale-110">
+                  <ImportIcon />
+                </span>
+                <span className="mt-4 font-display text-xl tracking-tight text-ink">
+                  Import from LaTeX
+                </span>
+                <span className="mt-1.5 max-w-[24ch] text-sm text-ink-muted text-pretty">
+                  Paste your Overleaf source. We&rsquo;ll read the structure and open
+                  it here.
                 </span>
               </button>
             </motion.article>
@@ -359,6 +450,13 @@ function TemplatesGallery() {
         disabled={creatingSlug !== null}
         onUse={() => preview && void createFromTemplate(preview)}
         onClose={() => setPreview(null)}
+      />
+
+      <LatexImportDialog
+        open={importing}
+        templates={listed}
+        onClose={() => setImporting(false)}
+        onImported={(resumeId) => router.push(`/editor/${resumeId}`)}
       />
     </>
   );
@@ -513,6 +611,26 @@ function PlusIcon() {
       aria-hidden
     >
       <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+/** A page with an arrow coming into it — brought in from elsewhere, not created. */
+function ImportIcon() {
+  return (
+    <svg
+      width={22}
+      height={22}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M12 3v11m0 0 4-4m-4 4-4-4" />
+      <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
     </svg>
   );
 }

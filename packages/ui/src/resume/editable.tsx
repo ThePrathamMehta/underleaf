@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useRef } from "react";
-import { htmlToPlainText, plainTextToHtml, sanitizeInlineHtml } from "./rich-text";
+import { htmlToPlainText, plainTextToHtml, sanitizeInlineHtml, stripAnchors } from "./rich-text";
 
 /** Path into the resume content JSON, e.g. ["sections", 2, "items", 0, "role"]. */
 export type FieldPath = (string | number)[];
@@ -23,6 +23,24 @@ export const ResumeEditingProvider = ResumeEditingContext.Provider;
 export function useResumeEditing(): ResumeEditingValue | null {
   return useContext(ResumeEditingContext);
 }
+
+/**
+ * Whether this render may emit real `<a>` elements.
+ *
+ * On by default, because for the two renders that matter — the editor's canvas and
+ * the exported PDF — a clickable portfolio URL is the entire point of a contact
+ * link. Off for a render that is a *picture* of a resume: `ResumeDocument`'s
+ * `inert` prop turns it off for thumbnails, which are `aria-hidden` and
+ * `pointer-events-none` and whose call sites wrap them in a `<Link>` to the editor.
+ * An `<a>` inside an `<a>` is invalid HTML and breaks hydration.
+ *
+ * A context rather than a prop threaded through the templates: every template
+ * renders contact links, and none of them should have to know or care why this
+ * particular render isn't interactive.
+ */
+const ResumeLinksContext = createContext(true);
+
+export const ResumeLinksProvider = ResumeLinksContext.Provider;
 
 type EditableTextProps = {
   value: string;
@@ -74,6 +92,7 @@ export function EditableText({
   blockAttrs,
 }: EditableTextProps) {
   const editing = useResumeEditing();
+  const links = useContext(ResumeLinksContext);
   const ref = useRef<HTMLElement>(null);
   // The last value we know this node's DOM holds. It lets the effect tell an
   // external change (undo/redo, template switch, reset) apart from the echo of
@@ -104,11 +123,16 @@ export function EditableText({
     // Sanitized at render, not trusted from storage: this same path renders the
     // exported PDF, and content can reach the database by routes other than
     // this component.
+    //
+    // A field's own HTML can hold links too — the selection toolbar makes them
+    // inside a bullet — so an inert render has to unwrap those as well, not just
+    // the contact links `EditableLink` renders.
+    const html = sanitizeInlineHtml(value);
     return (
       <Tag
         className={className}
         {...blockAttrs}
-        dangerouslySetInnerHTML={{ __html: sanitizeInlineHtml(value) }}
+        dangerouslySetInnerHTML={{ __html: links ? html : stripAnchors(html) }}
       />
     );
   }
@@ -205,19 +229,22 @@ export function EditableLink({
   placeholder,
 }: EditableTextProps & { url: string }) {
   const editing = useResumeEditing();
+  const links = useContext(ResumeLinksContext);
 
   if (editing) {
     return <EditableText value={value} path={path} className={className} placeholder={placeholder} />;
   }
 
   // The label may carry its own formatting; the href never does.
+  const label = sanitizeInlineHtml(value);
+
+  // An inert render keeps the label and its styling and drops only the
+  // navigation, so a thumbnail still looks exactly like the page it previews.
+  if (!links) {
+    return <span className={className} dangerouslySetInnerHTML={{ __html: stripAnchors(label) }} />;
+  }
+
   const target = htmlToPlainText(url).trim();
   const href = target.startsWith("http") ? target : `https://${target}`;
-  return (
-    <a
-      className={className}
-      href={href}
-      dangerouslySetInnerHTML={{ __html: sanitizeInlineHtml(value) }}
-    />
-  );
+  return <a className={className} href={href} dangerouslySetInnerHTML={{ __html: label }} />;
 }

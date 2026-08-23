@@ -38,13 +38,13 @@ export type AiProvider = z.infer<typeof aiProviderSchema>;
  * deployment can start with one row for everything and split later without
  * touching any calling code.
  */
-export const AI_PURPOSES = ["chat", "ats", "jdMatch", "coverLetter", "all"] as const;
+export const AI_PURPOSES = ["chat", "ats", "jdMatch", "coverLetter", "latexImport", "all"] as const;
 
 export const aiPurposeSchema = z.enum(AI_PURPOSES);
 export type AiPurpose = z.infer<typeof aiPurposeSchema>;
 
-/** The four real purposes, in the order the admin table lists them. */
-export const AI_FEATURE_PURPOSES = ["chat", "ats", "jdMatch", "coverLetter"] as const;
+/** The real purposes, in the order the admin table lists them. */
+export const AI_FEATURE_PURPOSES = ["chat", "ats", "jdMatch", "coverLetter", "latexImport"] as const;
 
 /** Human labels, so the API and the admin page can't drift on wording. */
 export const AI_PURPOSE_LABELS: Record<AiPurpose, string> = {
@@ -52,6 +52,7 @@ export const AI_PURPOSE_LABELS: Record<AiPurpose, string> = {
   ats: "ATS scoring",
   jdMatch: "Job-description match",
   coverLetter: "Cover letters",
+  latexImport: "LaTeX import",
   all: "Everything else",
 };
 

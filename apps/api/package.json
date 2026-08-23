@@ -11,6 +11,9 @@
     "check:metering": "bun run scripts/check-metering.ts",
     "check:lifecycle": "bun run scripts/check-lifecycle.ts",
     "check:one-page": "bun run scripts/check-one-page.ts",
+    "check:fit-page": "bun run scripts/check-fit-page.ts",
+    "check:existing-pages": "bun run scripts/check-existing-pages.ts",
+    "check:tune-themes": "bun run scripts/tune-template-themes.ts",
     "browsers:install": "bunx puppeteer browsers install chrome",
     "lint": "eslint . --max-warnings 0",
     "check-types": "tsc --noEmit"
@@ -20,6 +23,7 @@
     "@pdf-lib/fontkit": "^1.1.1",
     "@repo/ai": "*",
     "@repo/db": "*",
+    "@repo/latex-import": "*",
     "@repo/scoring": "*",
     "@repo/types": "*",
     "@repo/ui": "*",

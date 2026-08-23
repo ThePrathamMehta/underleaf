@@ -90,14 +90,25 @@ export default function StartPage() {
           </div>
         )}
 
-        {/* Always rendered, including when the professions fetch fails — this is
-            the escape hatch, so it can't depend on the thing it escapes from. */}
-        <div className="mt-10 border-t border-rule pt-6">
+        {/* Always rendered, including when the professions fetch fails — these are
+            the escape hatches, so they can't depend on the thing they escape from.
+            Import is here rather than only in the gallery because someone who
+            already has a resume has no use for a question about which format to
+            start from: they're not starting. */}
+        <div className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-3 border-t border-rule pt-6">
           <Link
             href="/templates"
             className="group inline-flex items-center gap-1.5 text-sm text-ink-muted transition-colors hover:text-ink"
           >
             Browse all templates instead
+            <span className="transition-transform duration-200 group-hover:translate-x-0.5">→</span>
+          </Link>
+
+          <Link
+            href="/templates?import=1"
+            className="group inline-flex items-center gap-1.5 text-sm text-ink-muted transition-colors hover:text-ink"
+          >
+            Already have a LaTeX resume? Paste it in
             <span className="transition-transform duration-200 group-hover:translate-x-0.5">→</span>
           </Link>
         </div>

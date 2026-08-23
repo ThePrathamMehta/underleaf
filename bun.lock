@@ -17,6 +17,7 @@
         "@pdf-lib/fontkit": "^1.1.1",
         "@repo/ai": "*",
         "@repo/db": "*",
+        "@repo/latex-import": "*",
         "@repo/scoring": "*",
         "@repo/types": "*",
         "@repo/ui": "*",
@@ -131,6 +132,19 @@
         "globals": "^16.5.0",
         "typescript": "^5.9.2",
         "typescript-eslint": "^8.50.0",
+      },
+    },
+    "packages/latex-import": {
+      "name": "@repo/latex-import",
+      "version": "0.0.0",
+      "dependencies": {
+        "@repo/types": "*",
+      },
+      "devDependencies": {
+        "@repo/eslint-config": "*",
+        "@repo/typescript-config": "*",
+        "@types/bun": "^1.3.14",
+        "typescript": "5.9.2",
       },
     },
     "packages/scoring": {
@@ -390,6 +404,8 @@
     "@repo/db": ["@repo/db@workspace:packages/db"],
 
     "@repo/eslint-config": ["@repo/eslint-config@workspace:packages/eslint-config"],
+
+    "@repo/latex-import": ["@repo/latex-import@workspace:packages/latex-import"],
 
     "@repo/scoring": ["@repo/scoring@workspace:packages/scoring"],
 

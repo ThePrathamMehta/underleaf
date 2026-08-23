@@ -1,8 +1,10 @@
 import { Router } from "express";
 import { prisma } from "@repo/db";
 import {
+  contentDispositionAttachment,
   coverLetterToneSchema,
   generateCoverLetterBodySchema,
+  getExportFilename,
   updateCoverLetterBodySchema,
   type CoverLetterDto,
   type CoverLetterTone,
@@ -268,11 +270,17 @@ coverLettersRouter.get(
       }),
     );
 
-    const base =
-      row.resume.title.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "cover-letter";
+    // Named after the applicant, like the resume it accompanies, and through the
+    // same helper — so the pair arrive in a recruiter's folder as
+    // "Pratham-Mehta-Resume.pdf" and "Pratham-Mehta-Cover-Letter.pdf" rather than
+    // as two files sanitized by two copies of the same regex.
+    const filename = getExportFilename(
+      { title: row.resume.title, content: parseContent(row.resume.content) },
+      { suffix: "Cover-Letter" },
+    );
 
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${base}-cover-letter.pdf"`);
+    res.setHeader("Content-Disposition", contentDispositionAttachment(filename));
     res.setHeader("Content-Length", pdf.byteLength);
     res.end(Buffer.from(pdf));
   }),

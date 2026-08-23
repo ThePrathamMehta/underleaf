@@ -96,10 +96,26 @@ export const TEMPLATE_CATEGORIES = [
   "Creative",
   "Minimal",
   "Corporate",
+  "Blank",
 ] as const;
 
 export const templateCategorySchema = z.enum(TEMPLATE_CATEGORIES);
 export type TemplateCategory = z.infer<typeof templateCategorySchema>;
+
+/**
+ * The template whose resumes are freeform rather than section-based.
+ *
+ * A slug rather than a column on `Template`, because the renderer already
+ * dispatches on the slug and one more layout is exactly what this is from its
+ * point of view. Compared exactly: variants exist for the five *styled* templates
+ * (`jakes--compact`), and a variant of "no imposed styling" would be a
+ * contradiction.
+ */
+export const BLANK_TEMPLATE_SLUG = "blank";
+
+export function isBlankTemplate(slug: string | null | undefined): boolean {
+  return slug === BLANK_TEMPLATE_SLUG;
+}
 
 export const templateListQuerySchema = z.object({
   category: templateCategorySchema.optional(),
@@ -162,6 +178,17 @@ export const createResumeBodySchema = z.object({
    * row, so a client can't post arbitrary content in as a "sample".
    */
   profession: z.string().min(1).max(80).optional(),
+  /**
+   * Content extracted by `POST /resumes/import/latex`, saved straight into the new
+   * resume so an import is one round-trip rather than create-then-PATCH.
+   *
+   * Unlike `profession`, this genuinely is content from the client — and it has to
+   * be, because the extraction is deliberately *not* persisted before the user has
+   * reviewed it. Safe for the same reason autosave's `content` is: the schema
+   * validates every field and bounds every length, so the worst a caller can post
+   * is a resume they then own and could have typed by hand anyway.
+   */
+  importedContent: resumeContentSchema.optional(),
 });
 
 export type CreateResumeBody = z.infer<typeof createResumeBodySchema>;

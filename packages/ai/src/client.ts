@@ -30,12 +30,19 @@ import type {
  * already have and should fail fast rather than leave a spinner up. The cover
  * letter is the one case where the output *is* the deliverable, so it gets the
  * most tokens.
+ *
+ * The LaTeX import is the largest single output of the lot: it returns a whole
+ * resume document as JSON, which is why its ceiling is the highest here. Its
+ * deadline is generous for the same reason — a user who has just pasted a CV is
+ * watching one progress indicator and will wait, whereas an ATS spinner sitting
+ * beside a document they can already read will not be forgiven.
  */
 const PURPOSE_LIMITS: Record<AiPurpose, { maxTokens: number; timeoutMs: number }> = {
   chat: { maxTokens: 4096, timeoutMs: 120_000 },
   ats: { maxTokens: 2048, timeoutMs: 60_000 },
   jdMatch: { maxTokens: 2048, timeoutMs: 60_000 },
   coverLetter: { maxTokens: 3072, timeoutMs: 90_000 },
+  latexImport: { maxTokens: 8192, timeoutMs: 120_000 },
   all: { maxTokens: 4096, timeoutMs: 90_000 },
 };
 

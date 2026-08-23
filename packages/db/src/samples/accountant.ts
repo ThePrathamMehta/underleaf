@@ -35,7 +35,7 @@ export const ACCOUNTANT_SAMPLE: ResumeContent = {
       items: [
         {
           id: "itm_summary",
-          text: "Chartered Accountant with six years in statutory audit and direct tax, cleared both CA Final groups in the first attempt. Leads Ind AS 116 transitions for listed manufacturing clients and manages a portfolio of 14 engagements with combined turnover of ₹4,200 crore.",
+          text: "Chartered Accountant with six years in statutory audit and direct tax, cleared both CA Final groups in the first attempt. Leads Ind AS 116 transitions for listed manufacturing clients across a portfolio of 14 engagements.",
         },
       ],
     },
@@ -55,9 +55,8 @@ export const ACCOUNTANT_SAMPLE: ResumeContent = {
           endDate: "Present",
           bullets: [
             "Manage statutory audits for 14 clients across manufacturing and NBFC sectors, with combined turnover of ₹4,200 crore.",
-            "Led Ind AS 116 lease transition for two listed clients, remeasuring 380 contracts and restating comparatives without a single audit adjustment on review.",
-            "Identified an unrecorded ₹18 crore contingent liability from a pending GST demand, resulting in a qualified disclosure and a revised provisioning policy.",
-            "Supervise and review the work of six article assistants, including their SA 230 working papers.",
+            "Led Ind AS 116 lease transition for two listed clients, remeasuring 380 contracts without a single audit adjustment on review.",
+            "Identified an unrecorded ₹18 crore contingent liability from a pending GST demand, forcing a revised provisioning policy.",
           ],
         },
         {
@@ -69,7 +68,7 @@ export const ACCOUNTANT_SAMPLE: ResumeContent = {
           endDate: "Mar 2022",
           bullets: [
             "Executed limited reviews and year-end audits for eight private clients, drafting the financial statements and the CARO 2020 annexure.",
-            "Completed the internal financial controls assessment under Section 143(3)(i) for a ₹900 crore auto-components client, testing 142 control points.",
+            "Completed the Section 143(3)(i) internal financial controls assessment for a ₹900 crore auto-components client, testing 142 control points.",
           ],
         },
       ],
@@ -87,7 +86,7 @@ export const ACCOUNTANT_SAMPLE: ResumeContent = {
           subheading: "Article Assistant — Audit & Taxation",
           dateRange: "Jul 2017 – Jun 2020",
           bullets: [
-            "Completed the full three-year training contract across statutory audit, internal audit and direct tax, on engagements in pharmaceuticals, retail and infrastructure.",
+            "Completed the full three-year training contract across statutory audit, internal audit and direct tax.",
           ],
         },
       ],
@@ -129,7 +128,7 @@ export const ACCOUNTANT_SAMPLE: ResumeContent = {
         {
           id: "itm_sk1",
           category: "Audit & Assurance",
-          skills: ["Statutory Audit", "Internal Financial Controls", "CARO 2020", "SA 700 Reporting"],
+          skills: ["Statutory Audit", "Internal Financial Controls", "CARO 2020"],
         },
         {
           id: "itm_sk2",
@@ -155,13 +154,6 @@ export const ACCOUNTANT_SAMPLE: ResumeContent = {
           name: "Associate Chartered Accountant (ACA), Member No. 246831",
           issuer: "The Institute of Chartered Accountants of India",
           date: "2020",
-          link: "",
-        },
-        {
-          id: "itm_ct2",
-          name: "Certified Public Accountant (CPA) — Passed all four sections",
-          issuer: "AICPA",
-          date: "2024",
           link: "",
         },
       ],

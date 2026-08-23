@@ -2,9 +2,13 @@ import { Router } from "express";
 import { prisma } from "@repo/db";
 import {
   createResumeBodySchema,
+  createBlankCanvasContent,
   createBlankContent,
   createEmptyContent,
+  contentDispositionAttachment,
   exportQuerySchema,
+  getExportFilename,
+  isBlankTemplate,
   resumeContentSchema,
   themeSchema,
   updateResumeBodySchema,
@@ -14,6 +18,7 @@ import { asyncHandler, notFound, validateBody, validateQuery } from "../middlewa
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 import { parseContent, parseTheme, serializeResumeWithTemplate } from "../serializers.js";
 import { exportResumePdf } from "../services/pdf.js";
+import { inlineResumeImages } from "../services/resume-images.js";
 
 export const resumesRouter = Router();
 
@@ -54,38 +59,64 @@ resumesRouter.post(
   "/",
   validateBody(createResumeBodySchema),
   asyncHandler<AuthedRequest>(async (req, res) => {
-    const { templateId, title, blank, profession } = req.body;
+    const { templateId, title, blank, profession, importedContent } = req.body;
 
     const template = await prisma.template.findFirst({
       where: { OR: [{ id: templateId }, { slug: templateId }] },
     });
     if (!template) throw notFound("Template");
 
+    /**
+     * The Blank template is a canvas rather than a layout, so it starts from the
+     * canvas scaffold — one empty heading waiting to be typed in — and ignores
+     * both the `blank` flag and the profession the user was browsing. Neither has
+     * anything to say about a document with no sections in it: `createBlankContent`
+     * would scaffold three sections the canvas can't lay out, and a profession
+     * sample would fill the page with exactly the structure the user just chose
+     * not to have.
+     *
+     * Imported content outranks it, because that content is *sections* — a canvas
+     * would render none of it, and silently dropping a resume the user just
+     * watched being extracted is the one outcome worth ruling out here.
+     */
+    const canvas = isBlankTemplate(template.slug) && !importedContent;
+
     // The profession the user was browsing, if any, decides which sample the
     // resume starts from — the gallery previewed that one, so opening the editor
     // on the template's general sample instead would be a bait and switch.
     // An unknown slug is not an error: it just falls through to the template's.
-    const professionSample = profession
-      ? await prisma.profession
-          .findUnique({ where: { slug: profession }, select: { sampleContent: true } })
-          .then((row) => row?.sampleContent ?? null)
-      : null;
+    const professionSample =
+      profession && !canvas && !importedContent
+        ? await prisma.profession
+            .findUnique({ where: { slug: profession }, select: { sampleContent: true } })
+            .then((row) => row?.sampleContent ?? null)
+        : null;
 
     // Seeded templates carry sample content so a new resume opens with something
     // to edit; fall back to a blank document if that sample is ever absent.
     // "Start from Blank" skips the sample entirely for a minimal scaffold.
     const sample = resumeContentSchema.safeParse(professionSample ?? template.sampleContent);
-    const content = blank
-      ? createBlankContent()
-      : sample.success
-        ? sample.data
-        : createEmptyContent();
+    const content = importedContent
+      ? importedContent
+      : canvas
+        ? createBlankCanvasContent()
+        : blank
+          ? createBlankContent()
+          : sample.success
+            ? sample.data
+            : createEmptyContent();
 
     const resume = await prisma.resume.create({
       data: {
         userId: req.userId,
         templateId: template.id,
-        title: title ?? (blank ? "Untitled Resume" : `${template.name} Resume`),
+        title:
+          title ??
+          (importedContent
+            ? "Imported Resume"
+            : blank || canvas
+              ? "Untitled Resume"
+              : `${template.name} Resume`),
         content,
         theme: parseTheme(template.defaultTheme),
       },
@@ -180,16 +211,22 @@ resumesRouter.get(
 
     const pdf = await exportResumePdf({
       templateSlug: resume.template.slug,
-      content,
+      // Images are referenced by URL in the document, but Puppeteer prints from
+      // `setContent` — no origin, no cookie — so their bytes have to travel with
+      // the markup.
+      content: await inlineResumeImages(content, req.userId),
       // The query param lets the editor print Letter without persisting a theme
       // change the user didn't ask for.
       theme: pageSize ? themeSchema.parse({ ...theme, pageSize }) : theme,
     });
 
-    const filename = `${resume.title.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "resume"}.pdf`;
+    // Named after the person, not the document: a recruiter's downloads folder is
+    // full of files called "resume.pdf", and this is the one thing about the export
+    // the applicant doesn't get to fix afterwards.
+    const filename = getExportFilename({ title: resume.title, content });
 
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Content-Disposition", contentDispositionAttachment(filename));
     res.setHeader("Content-Length", pdf.byteLength);
     res.end(Buffer.from(pdf));
   }),

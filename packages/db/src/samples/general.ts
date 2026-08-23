@@ -33,7 +33,7 @@ export const GENERAL_SAMPLE: ResumeContent = {
       items: [
         {
           id: "itm_summary",
-          text: "Operations manager with nine years running distribution and service teams, currently responsible for a 60-person site and a $12M operating budget. Track record of finding the constraint rather than adding headcount — most recently taking order accuracy from 94% to 99.3% without increasing labour cost.",
+          text: "Operations manager with nine years running distribution and service teams, currently responsible for a 60-person site and a $12M operating budget. Took order accuracy from 94% to 99.3% without increasing labour cost.",
         },
       ],
     },
@@ -53,11 +53,10 @@ export const GENERAL_SAMPLE: ResumeContent = {
           endDate: "Present",
           bullets: [
             "Run daily operations for a 140,000 sq ft facility shipping 8,000 orders a day, with a team of 60 and a $12M operating budget.",
-            "Raised order accuracy from 94% to 99.3% in three quarters by reworking pick-path zoning and adding a scan verification step, at no additional labour cost.",
-            "Renegotiated three carrier contracts, reducing outbound freight spend 14% ($680K annually) while improving on-time delivery two points.",
-            "Cut voluntary turnover from 38% to 21% by introducing a written shift-bid process and a formal promotion ladder for leads.",
+            "Raised order accuracy from 94% to 99.3% in three quarters by reworking pick-path zoning and adding a scan verification step.",
+            "Renegotiated three carrier contracts, reducing outbound freight spend 14% ($680K annually) while improving on-time delivery.",
+            "Cut voluntary turnover from 38% to 21% with a written shift-bid process and a formal promotion ladder for leads.",
             "Own the site safety programme; 640 days without a lost-time incident as of this quarter.",
-            "Report weekly on throughput, cost per order and fill rate to the regional operations director.",
           ],
         },
         {
@@ -84,7 +83,6 @@ export const GENERAL_SAMPLE: ResumeContent = {
           bullets: [
             "Managed inventory and scheduling for a location doing $9M in annual revenue.",
             "Reduced shrink 1.8 points by tightening receiving reconciliation and retraining the receiving team.",
-            "Coordinated seasonal hiring of 25 temporary associates across two peak cycles, retaining 80% through the season.",
           ],
         },
       ],

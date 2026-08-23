@@ -54,12 +54,16 @@ export function ResumeThumbnail({
     >
       {scale > 0 && (
         <div
-          // Inert: the thumbnail must not be focusable or interactive.
+          // Inert: the thumbnail must not be focusable or interactive. `inert` on
+          // the document is the half CSS can't do — it stops the renderer emitting
+          // `<a>` elements at all, which `aria-hidden` would hide from a screen
+          // reader but leave as invalid nesting inside the `<Link>` most callers
+          // wrap this in.
           aria-hidden
           className="pointer-events-none absolute left-0 top-0 origin-top-left select-none"
           style={{ width: pageWidthPx, height: pageHeightPx, transform: `scale(${scale})` }}
         >
-          <ResumeDocument templateSlug={templateSlug} content={content} theme={theme} />
+          <ResumeDocument templateSlug={templateSlug} content={content} theme={theme} inert />
         </div>
       )}
     </div>

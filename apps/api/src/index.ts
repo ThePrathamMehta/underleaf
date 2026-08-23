@@ -8,11 +8,13 @@ import { authRouter } from "./routes/auth.js";
 import { templatesRouter } from "./routes/templates.js";
 import { professionsRouter } from "./routes/professions.js";
 import { resumesRouter } from "./routes/resumes.js";
+import { latexImportRouter } from "./routes/latex-import.js";
 import { resumeChatRouter } from "./routes/resume-chat.js";
 import { atsRouter } from "./routes/ats.js";
 import { jdRouter } from "./routes/jd.js";
 import { coverLettersRouter, resumeCoverLettersRouter } from "./routes/cover-letters.js";
 import { pdfsRouter } from "./routes/pdfs.js";
+import { uploadsRouter } from "./routes/uploads.js";
 import { adminRouter } from "./routes/admin.js";
 import { billingRouter } from "./routes/billing.js";
 import { closeBrowser } from "./services/pdf.js";
@@ -53,6 +55,10 @@ if (config.oauthEnabled) {
 }
 app.use("/templates", templatesRouter);
 app.use("/professions", professionsRouter);
+// Ahead of the CRUD router: `/resumes/import/latex` would otherwise be read as
+// `/resumes/:id/...` by anything that router grows later, and a literal path
+// registered first can't be shadowed by a parameterised one.
+app.use("/resumes", latexImportRouter);
 app.use("/resumes", resumesRouter);
 // Same prefix, its own file: the streaming handler has a response lifecycle
 // nothing else in the CRUD router shares. Neither router matches the other's
@@ -65,6 +71,7 @@ app.use("/resumes", jdRouter);
 app.use("/resumes", resumeCoverLettersRouter);
 app.use("/cover-letters", coverLettersRouter);
 app.use("/pdfs", pdfsRouter);
+app.use("/uploads", uploadsRouter);
 app.use("/billing", billingRouter);
 app.use("/admin", adminRouter);
 

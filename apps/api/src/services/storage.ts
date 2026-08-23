@@ -55,6 +55,15 @@ export const storageKeys = {
   /** Everything belonging to one document, for cascading deletes. */
   document: (userId: string, documentId: string) => `users/${userId}/pdfs/${documentId}/`,
   /**
+   * An image the user inserted into a resume.
+   *
+   * `fileName` carries its own extension (`img_a1b2c3d4.png`), which is what lets
+   * a request for one rebuild this key from the URL alone — no lookup table, no
+   * Prisma row. It sits under the user rather than under a resume because the same
+   * headshot is reasonably dropped into several, and a copy per resume would mean
+   * a re-upload per resume.
+   */
+  image: (userId: string, fileName: string) => `users/${userId}/images/${fileName}`,  /**
    * Everything belonging to one user. Deleting an account cascades its rows
    * through Prisma, but nothing in the database knows about blobs — this prefix
    * is what makes the same cascade reach disk.
@@ -74,6 +83,65 @@ export const FONT_MIME_TYPES: Record<FontExtension, string> = {
 export function fontExtensionFor(mimeType: string): FontExtension {
   return mimeType === "font/otf" ? "otf" : "ttf";
 }
+
+/**
+ * The image types a resume may embed, and the extension each is stored under.
+ *
+ * A deliberately short list. SVG is the notable omission: it is a document, not a
+ * bitmap — it can carry script, and this app serves uploaded bytes from its own
+ * origin, so a stored SVG opened directly would run that script as us. PDF export
+ * would also have to rasterize it. Everything a resume actually needs — a
+ * headshot, a logo, a QR code — is one of the three below.
+ */
+export const IMAGE_EXTENSIONS: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+};
+
+/**
+ * The image file names this app will build a key from.
+ *
+ * Tight enough that traversal, absolute paths and nested segments are impossible
+ * before a key exists at all — `assertSafeKey` below is the backstop, not the
+ * gate. Lives here beside the key builder so the upload route, the serving route
+ * and the export's inlining pass all agree on what a valid name is.
+ */
+export const IMAGE_FILE_NAME = /^img_[a-z0-9]{1,32}\.(?:png|jpg|webp)$/;
+
+/** The path this app serves uploaded images from, matched by the export pass. */
+export const IMAGE_URL_PREFIX = "/uploads/image/";
+
+/** Whether a browser-declared MIME type is one this app stores. */
+export function isSupportedImageType(mimeType: string): boolean {
+  return mimeType in IMAGE_EXTENSIONS;
+}
+
+/**
+ * The image type these bytes actually are, or null if they aren't an image this
+ * app stores.
+ *
+ * The type a browser declares on an upload is just a string in the request, and
+ * these bytes are served back out of our own origin — so the stored content type
+ * is taken from the file's own magic number instead. A `.png` that is really an
+ * HTML document is rejected here rather than stored and later served as one.
+ */
+export function sniffImageType(bytes: Buffer): string | null {
+  if (bytes.length >= 12 && bytes.subarray(0, 8).equals(PNG_MAGIC)) return "image/png";
+  if (bytes.length >= 3 && bytes.subarray(0, 3).equals(JPEG_MAGIC)) return "image/jpeg";
+  // RIFF....WEBP — the four bytes between are the chunk length.
+  if (
+    bytes.length >= 12 &&
+    bytes.subarray(0, 4).toString("latin1") === "RIFF" &&
+    bytes.subarray(8, 12).toString("latin1") === "WEBP"
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const JPEG_MAGIC = Buffer.from([0xff, 0xd8, 0xff]);
 
 /**
  * Keys come from `storageKeys` today, but a driver that maps them onto a
@@ -147,6 +215,7 @@ function guessContentType(key: string): string {
   if (key.endsWith(".pdf")) return "application/pdf";
   if (key.endsWith(".png")) return "image/png";
   if (key.endsWith(".jpg") || key.endsWith(".jpeg")) return "image/jpeg";
+  if (key.endsWith(".webp")) return "image/webp";
   if (key.endsWith(".ttf")) return FONT_MIME_TYPES.ttf;
   if (key.endsWith(".otf")) return FONT_MIME_TYPES.otf;
   return "application/octet-stream";

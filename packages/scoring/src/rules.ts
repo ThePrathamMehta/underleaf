@@ -6,7 +6,7 @@ import type {
   ResumeContent,
   Theme,
 } from "@repo/types";
-import { ATS_SEVERITY_RANK, isTextItem, sectionEntries } from "@repo/types";
+import { ATS_SEVERITY_RANK, isPlacedItem, sectionEntries } from "@repo/types";
 import {
   resumeBullets,
   resumeChunks,
@@ -258,7 +258,7 @@ function checkDates(content: ResumeContent, add: (issue: AtsIssue) => void): voi
       for (const item of section.items) {
         // Skipped per-item rather than filtered up front: the narrowing here
         // spans two section types, so `items` is a union of two arrays.
-        if (isTextItem(item)) continue;
+        if (isPlacedItem(item)) continue;
         if (!toPlainText(item.startDate) && !toPlainText(item.endDate)) {
           const what =
             "role" in item

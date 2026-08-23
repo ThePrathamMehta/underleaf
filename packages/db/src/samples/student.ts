@@ -42,7 +42,7 @@ export const STUDENT_SAMPLE: ResumeContent = {
           endDate: "Expected May 2027",
           bullets: [
             "GPA 3.81 / 4.00. Dean's List, four semesters. Recipient, Forty Acres Scholarship.",
-            "Coursework: Data Structures, Algorithms, Operating Systems, Databases, Computer Networks, Linear Algebra, Probability.",
+            "Coursework: Data Structures, Algorithms, Operating Systems, Databases, Linear Algebra.",
           ],
         },
       ],
@@ -62,7 +62,7 @@ export const STUDENT_SAMPLE: ResumeContent = {
           startDate: "Jan 2026",
           endDate: "Present",
           bullets: [
-            "Live arrival display for Austin's CapMetro network, polling the GTFS-Realtime feed and serving predictions to roughly 400 weekly users.",
+            "Live arrival display for Austin's CapMetro network, polling the GTFS-Realtime feed for roughly 400 weekly users.",
             "Cut median response time from 610ms to 45ms by caching feed snapshots in Redis instead of re-parsing protobuf per request.",
           ],
         },
@@ -74,8 +74,7 @@ export const STUDENT_SAMPLE: ResumeContent = {
           startDate: "Sep 2025",
           endDate: "Dec 2025",
           bullets: [
-            "Degree-plan checker that validates a proposed schedule against prerequisite chains; used by 120 students during registration week.",
-            "Built as a team of three, where I owned the prerequisite graph traversal and the conflict-detection logic.",
+            "Degree-plan checker that validates a schedule against prerequisite chains; used by 120 students during registration week.",
           ],
         },
         {
@@ -86,7 +85,7 @@ export const STUDENT_SAMPLE: ResumeContent = {
           startDate: "Mar 2025",
           endDate: "May 2025",
           bullets: [
-            "Unix shell supporting pipes, redirection, job control and background processes, written for Operating Systems and graded at 100%.",
+            "Unix shell supporting pipes, redirection and job control, written for Operating Systems and graded at 100%.",
           ],
         },
       ],
@@ -119,7 +118,6 @@ export const STUDENT_SAMPLE: ResumeContent = {
           endDate: "Dec 2025",
           bullets: [
             "Opened and closed the store, handling cash reconciliation and a team of four during peak hours.",
-            "Rewrote the opening checklist after repeated ticket backlogs; open-to-first-order time dropped from 22 to 14 minutes.",
           ],
         },
       ],

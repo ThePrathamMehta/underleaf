@@ -18,7 +18,9 @@ import { Router } from "express";
 import multer from "multer";
 import { prisma } from "@repo/db";
 import {
+  contentDispositionAttachment,
   renamePdfDocumentBodySchema,
+  toFilenameStem,
   updatePdfTextRunBodySchema,
 } from "@repo/types";
 import { asyncHandler, badRequest, notFound, validateBody, HttpError } from "../middleware/errors.js";
@@ -347,8 +349,14 @@ pdfsRouter.get(
     const doc = await findOwnedDocument(req.params.id!, req.userId);
     const bytes = await exportEditedPdf(doc);
 
+    // Sanitized through the shared helper rather than interpolated: a title is
+    // user input, and a quote or a newline in one would corrupt the header. No
+    // "-Resume" suffix here, unlike the resume export — an uploaded PDF is
+    // whatever document the user brought, and this keeps the name they gave it.
+    const filename = `${toFilenameStem(doc.title) || "Document"}.pdf`;
+
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${doc.title}.pdf"`);
+    res.setHeader("Content-Disposition", contentDispositionAttachment(filename));
     res.end(Buffer.from(bytes));
   }),
 );
